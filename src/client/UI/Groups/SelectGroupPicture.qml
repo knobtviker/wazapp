@@ -46,6 +46,7 @@ WAPage {
     }
 
 	Component.onCompleted: {
+		console.log("SELECT DIALOG OPENED")
 		galleryModel.filter = myFilters
 	}
 
@@ -58,23 +59,7 @@ WAPage {
 			},
 			GalleryWildcardFilter {
 				property: "fileName";
-				value: "*.jpeg";
-			},
-			GalleryWildcardFilter {
-				property: "fileName";
 				value: "*.png";
-			},
-			GalleryWildcardFilter {
-				property: "fileName";
-				value: "*.JPG";
-			},
-			GalleryWildcardFilter {
-				property: "fileName";
-				value: "*.JPEG";
-			},
-			GalleryWildcardFilter {
-				property: "fileName";
-				value: "*.PNG";
 			}
 		]
 	}
@@ -96,9 +81,8 @@ WAPage {
 
 		delegate: Image {
 			source: "/home/user/.thumbnails/grid/" + Qt.md5(url) + ".jpeg"
-			width: 158
-			height: 158
-			smooth: true
+			width: 160
+			height: 160
 
 			Rectangle {
 				id: rec
@@ -124,7 +108,7 @@ WAPage {
 	            id: mouseArea
 	            anchors.fill: parent
 	            onClicked: {
-					sendMediaImageFile(currentJid, decodeURIComponent(url))
+	                selectedGroupPicture = decodeURIComponent(url)
 					pageStack.pop()
 	            }
 	        }

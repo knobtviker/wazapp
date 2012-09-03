@@ -41,9 +41,11 @@ Rectangle{
     property string picture;
     property int unreadCount;
 	property bool isOpenend:false
+	property string typing: "<i>" + qsTr("is writting a message...") + "</i>"
+
     signal clicked(string number);
     signal optionsRequested()
-    //visible:lastMessage || isGroup ? true : false;
+
     height: 102 //lastMessage || isGroup ? 102 : 0;
     color:"transparent"
 
@@ -60,12 +62,37 @@ Rectangle{
 				owner = data[1]
 			}
 		}
-		onOnContactUpdated: {
+		onOnContactPictureUpdated: {
 			if (jid == ujid) {
 				chat_picture.imgsource = ""
 				chat_picture.imgsource = picture
 			}
 		}	
+		onUpdatePushName: {
+			if (jid == ujid) {
+				if (title = jid.split('@')[0]) {
+					consoleDebug("Update push name in Chat")
+					chat_title.text = npush
+				}
+			}
+		}
+
+		onOnTyping: {
+			if (jid == ujid) 
+				last_msg.text = typing
+		}
+
+		onOnPaused: {
+			if (jid == ujid) 
+				last_msg.text = lastMessage? (lastMessage.type==0 || lastMessage.type==1 ? Helpers.emojify(lastMessage.content) : 
+			  	    (lastMessage.type==20 ? qsTr("%1 has join the group").arg(getAuthor(lastMessage.content)) : 
+				    (lastMessage.type==21 ? qsTr("%1 has left the group").arg(getAuthor(lastMessage.content)) :
+				    (lastMessage.type==22 ? qsTr("%1 has changed the subject to %2").arg(getAuthor(lastMessage.author.jid)).arg(Helpers.emojify(lastMessage.content)) :
+					qsTr("%1 has changed the group picture").arg(getAuthor(lastMessage.content)) )))) :
+					qsTr("(no messages)")
+		}
+
+
 	}
 
     function getAuthor(inputText) {
@@ -253,14 +280,14 @@ Rectangle{
                     elide: Text.ElideRight
                     font.pixelSize: 20
                     height: 28
-                    //verticalAlignment: Text.AlignVCenter
+                    color: text==typing ? "gray" : (unreadCount!=0 ? "#27a01b" : chat_title.color)
 					clip: true
                 }
             }
 
             Label{
                 id: last_msg_time
-                text:lastMessage? lastMessage.formattedDate.replace(" ", " | ") : ""
+                text: lastMessage? Helpers.getDateText(lastMessage.formattedDate).replace("Today", qsTr("Today")).replace("Yesterday", qsTr("Yesterday")) : ""
                 font.pixelSize: 16
 				color: "gray"
 				height: 30

@@ -89,7 +89,7 @@ class WAManager():
 		gui.quit.connect(self.quit);
 
 		gui.populatePhoneContacts();
-		gui.populateContacts();
+		gui.populateContacts("ALL");
 		
 		gui.populateConversations();
 		print "SHOW FULL SCREEN"

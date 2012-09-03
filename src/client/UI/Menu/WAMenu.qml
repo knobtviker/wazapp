@@ -54,12 +54,15 @@ Menu {
             text: qsTr("Sync Contacts");
 			enabled: connectionStatus=="online"
             //onClicked: { console.log("SYNC"); syncClicked(); }
-			onClicked: pageStack.push (Qt.resolvedUrl("../Contacts/SelectContacts.qml"))
+			onClicked: {
+				shareSyncContacts.mode = "sync"
+				pageStack.push(shareSyncContacts)
+			}
         }
 
         MenuItem{
             text: qsTr("Settings")
-            onClicked: { pageStack.push(settingsPage); }
+            onClicked:  pageStack.push( Qt.resolvedUrl("../Settings/Settings.qml") );
         }
 
 

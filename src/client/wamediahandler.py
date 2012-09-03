@@ -28,7 +28,7 @@ from PySide.QtGui import *
 from wadebug import WADebug
 
 from connengine import MySocketConnection
-import os, mimetypes, socket, hashlib, ssl
+import os, mimetypes, socket, hashlib, ssl, urllib
 from time import sleep
 
 class WAMediaHandler(QObject):
@@ -141,9 +141,19 @@ class WAHTTPHandler(QThread):
 			
 	
 	def push(self,image):
+		#image = urllib.quote(image)
 		image = image.replace("file://","")
 
-		if self.resizeImages is True:
+		self.sock = MySocketConnection();
+		HOST, PORT = 'mms.whatsapp.net', 443
+		self.sock.connect((HOST, PORT));
+		ssl_sock = ssl.wrap_socket(self.sock)
+
+		filename = os.path.basename(image)
+		filetype = mimetypes.guess_type(filename)[0]
+		filesize = os.path.getsize(image)
+
+		if self.resizeImages is True and "image" in filetype:
 			user_img = QImage(image)
 			preimg = user_img
 			if user_img.height() > user_img.width() and user_img.width() > 600:
@@ -155,17 +165,12 @@ class WAHTTPHandler(QThread):
 			preimg.save("/home/user/.cache/wazapp/" + os.path.basename(image))
 			image = "/home/user/.cache/wazapp/" + os.path.basename(image)
 
-
-		self.sock = MySocketConnection();
-		HOST, PORT = 'mms.whatsapp.net', 443
-		self.sock.connect((HOST, PORT));
-		ssl_sock = ssl.wrap_socket(self.sock)
-
-		filename = os.path.basename(image)
-		filetype = mimetypes.guess_type(filename)[0]
-		filesize = os.path.getsize(image)
+			filename = os.path.basename(image)
+			filetype = mimetypes.guess_type(filename)[0]
+			filesize = os.path.getsize(image)
 
 		print "Uploading " + image + " - type: " + filetype + " - resize:" + str(self.resizeImages);
+
 
 		m = hashlib.md5()
 		m.update(filename)
@@ -199,7 +204,7 @@ class WAHTTPHandler(QThread):
 		POST += "POST https://mms.whatsapp.net/client/iphone/upload.php HTTP/1.1\r\n"
 		POST += "Content-Type: multipart/form-data; boundary=" + boundary + "\r\n"
 		POST += "Host: mms.whatsapp.net\r\n"
-		POST += "User-Agent: WhatsApp/2.8.13 S60Version/5.3 Device/C7-00\r\n"
+		POST += "User-Agent: WhatsApp/2.8.14 S60Version/5.3 Device/C7-00\r\n"
 		POST += "Content-Length: " + str(contentLength) + "\r\n\r\n"
 
 		print "sending REQUEST "
@@ -208,7 +213,7 @@ class WAHTTPHandler(QThread):
 		ssl_sock.write(str(hBAOS))
 
 		totalsent = 0
-		buf = 4096
+		buf = 1024
 		f = open(image, 'r')
 		stream = f.read()
 		f.close()
@@ -227,7 +232,7 @@ class WAHTTPHandler(QThread):
 
 		ssl_sock.write(str(fBAOS))
 
-		if self.resizeImages is True:
+		if self.resizeImages is True and "image" in filetype:
 			os.remove("/home/user/.cache/wazapp/" + os.path.basename(image))
 
 		sleep(1)

@@ -50,16 +50,10 @@ WAPage {
 		}
 	}
 
-    /*ListModel{
-        id:contactsModel
-    }*/
-
-
-     function pushContacts(contacts)
-     {
-       // console.log("AHOM"+contacts)
-        ContactsManager.populateContacts(contacts);
-     }
+    function pushContacts(contacts)
+    {
+		ContactsManager.populateContacts(contacts);
+    }
 
     function getOrCreateContact(c){
 
@@ -261,8 +255,8 @@ WAPage {
 
         Item{
         	anchors.fill: parent
-            visible:false;
-            id:no_data
+            visible: false
+            id: no_data
 
             Label{
                 anchors.centerIn: parent;

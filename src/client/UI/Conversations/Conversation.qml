@@ -16,13 +16,6 @@ WAPage {
             appWindow.setActiveConv("")
 			//opened = false
         }
-        else if(status == PageStatus.Activating){
-			if (!opened) {
-				loadMoreMessages(19)
-				opened = true
-				conv_items.positionViewAtEnd()
-			}
-		}
         else if(status == PageStatus.Active){
             appWindow.conversationActive(jid);
             appWindow.setActiveConv(jid)
@@ -32,9 +25,10 @@ WAPage {
 				unreadCount =0;
 				onChange();
 			}
-			if (selectedContactName!=="" && jid==currentJid) {
-				sendVCard(currentJid,selectedContactName)
-				selectedContactName = ""
+			if (!opened) {
+				loadMoreMessages(19)
+				opened = true
+				conv_items.positionViewAtEnd()
 			}
 		}
 		else if(status == PageStatus.Inactive){
@@ -92,11 +86,10 @@ WAPage {
 				owner = data[1]
 			}
 		}
-		onOnContactUpdated: {
+		onOnContactPictureUpdated: {
 			if (jid == ujid) {
 				userimage.imgsource = ""
 				userimage.imgsource = getPicture()
-				title:getTitle();
 			}
 		}
 		onSelectedMedia: {
@@ -104,11 +97,53 @@ WAPage {
 				sendMediaMessage(jid, url)
 		}
 
-		onOnMediaTransferProgressUpdated: {
-			if (jid = cjid) {
-				var bubble = getBubble(message_id);
-				if (bubble) bubble.progress = progress
+		onMediaTransferProgressUpdated: {
+			if (jid == mjid) {
+				var bubble = getBubble(mid);
+				if (bubble) {
+					//consoleDebug("UPDATING BUBBLE " + mjid + " - Progress: " + mprogress)
+					bubble.progress = mprogress
+				}
 			}
+		}
+
+		onMediaTransferSuccess: {
+			if (jid == mjid) {
+				var bubble = getBubble(mid);
+		        if(bubble) {
+					consoleDebug("MESSAGE SENT BUBBLE " + mjid)
+					bubble.media = mobject
+				    bubble.progress = 0
+				}
+			}
+		}
+
+		onMediaTransferError: {
+			if (jid == mjid) {
+				var bubble = getBubble(mid);
+		        if(bubble) {
+					consoleDebug("MESSAGE ERROR BUBBLE " + mjid)
+					bubble.media = mobject
+				    bubble.progress = 0
+				}
+			}
+		}
+
+		onUpdatePushName: {
+			if (jid == ujid) {
+				if (title = jid.split('@')[0]) {
+					consoleDebug("Update push name in Conversation")
+					conversationTitle.text = npush
+				}
+			}
+		}
+
+		onOnTyping: {
+			if (jid == ujid) setTyping()
+		}
+
+		onOnPaused: {
+			if (jid == ujid) setPaused()
 		}
 
 	}
@@ -283,7 +318,7 @@ WAPage {
         if(bubble){
             bubble.progress = progress
         }
-    }*/
+    }
 
     function mediaTransferSuccess(message_id,mediaObject){
         var bubble = getBubble(message_id);
@@ -300,7 +335,7 @@ WAPage {
             bubble.progress = 1;
             bubble.progress--;//to trigger fail->fail state change
         }
-    }
+    }*/
 
     function messageSent(msg_id){
         var bubble = getBubble(msg_id);
@@ -453,16 +488,19 @@ WAPage {
 		if (inputText==myAccount)
 			return qsTr("You")
         var resp = inputText;
+		var founded = false
         for(var i =0; i<contactsModel.count; i++)
         {
             if(resp == contactsModel.get(i).jid) {
+				founded = true
                 resp = contactsModel.get(i).name;
-		    	if (resp.indexOf("@")>-1 && contactsModel.get(i).pushname!="")
+		    	if (resp.indexOf("@")>-1  && contactsModel.get(i).pushname)
 					resp = contactsModel.get(i).pushname;
 				break;
 			}
         }
-        return resp.split('@')[0]
+		if (founded) return resp
+		else return resp.split('@')[0]
     }
 
     function getAuthorPicture(inputText) {
@@ -508,6 +546,7 @@ WAPage {
         id:myDelegate
 
         BubbleDelegate{
+			jid: jid
             mediatype_id: model.mediatype_id
             message: model.type==20 || model.type==21 ? getAuthor(model.content) : model.content
             media:model.media
@@ -529,6 +568,20 @@ WAPage {
 				showContactDetails = model.type==0 && name==model.author.jid.split('@')[0]
 				bubbleMenu.open();
 			}
+			
+			Connections {
+				target: appWindow
+
+				onUpdatePushName: {
+					if (model.author.jid == ujid) {
+						if (model.author.jid = ujid.split('@')[0] && isGroup && from_me==0) {
+							consoleDebug("Update push name in Conversation bubbles")
+							name= mediatype_id==10 || from_me==1 || !isGroup ? "" : getAuthor(model.author.jid).split('@')[0]
+						}
+					}
+				}
+			}
+			
         }
     }
 
@@ -537,7 +590,7 @@ WAPage {
 		interval: 2000; running: false; repeat: false
 		onTriggered: {
 		    iamtyping = false;
-            paused(jid);
+            sendPaused(jid);
 	    }
     }
 
@@ -759,7 +812,7 @@ WAPage {
                         if(!iamtyping)
                         {
                             consoleDebug("TYPING");
-                            typing(jid);
+                            sendTyping(jid);
                         }
                         iamtyping = true;
                         typing_timer.restart();
@@ -984,8 +1037,8 @@ WAPage {
 	    		anchors.verticalCenter: parent.verticalCenter
 				onClicked: {
 					mediaContentSlipOff.start();
-					selectedContactName = ""
-            		pageStack.push (Qt.resolvedUrl("../Contacts/ShareContact.qml"))
+					shareSyncContacts.mode = "share"
+					pageStack.push(shareSyncContacts)
 				}
 			}
 

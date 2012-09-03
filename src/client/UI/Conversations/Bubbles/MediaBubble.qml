@@ -237,7 +237,9 @@ SpeechBubble {
             anchors.top:buttonsHolder.bottom
             anchors.topMargin: 10
 			visible: state!="success"
-
+			platformStyle: ProgressBarStyle {
+				knownTexture: "../../common/images/progress" + (theme.inverted? "-inverted":"") + ".png"
+			}
         }
 
 

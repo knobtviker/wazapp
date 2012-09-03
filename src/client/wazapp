@@ -42,11 +42,13 @@ if __name__ == "__main__":
 	QtCore.QTextCodec.setCodecForCStrings(linuxCodec)
 	QtCore.QTextCodec.setCodecForLocale(linuxCodec)
 	
-	lang_name = unicode(QtCore.QLocale.system().name())
-	translator = QtCore.QTranslator()
-	translator.load("/opt/waxmppplugin/bin/wazapp/i18n/tr_" + lang_name[:2] + ".qm")
 	app = QApplication(sys.argv)
-	app.installTranslator(translator)
+
+	translator = QtCore.QTranslator()
+	if os.path.isfile("/home/user/.wazapp/language.qm"):
+		translator.load("/home/user/.wazapp/language.qm")
+		app.installTranslator(translator)
+
 	#PySide.QtGui.QErrorMessage.qtHandler().show()
 	wam = WAManager(app)
 

@@ -34,10 +34,17 @@ WAPage {
 	signal emojiSelected(string emojiCode);
 
     Component.onCompleted: {
+		participantsModel.clear()
+		selectedContacts = ""
 		selectedGroupPicture = "/opt/waxmppplugin/bin/wazapp/UI/common/images/group.png"
         status_text.forceActiveFocus();
-		participantsModel.clear()
     }
+
+	function getCurrentContacts() {
+		for (var i=0; i<participantsModel.count; ++i) {
+			selectedContacts = selectedContacts + (selectedContacts!==""? ",":"") + participantsModel.get(i).contactJid;
+		}
+	}
 
 	function cleanText(txt) {
         var repl = "p, li { white-space: pre-wrap; }";
@@ -315,7 +322,10 @@ WAPage {
 					MouseArea {
 						id: bcArea
 						anchors.fill: parent
-						onClicked: pageStack.push (Qt.resolvedUrl("AddContacts.qml"))
+						onClicked: {
+							getCurrentContacts()
+							pageStack.push (addContacts)
+						}
 					}
 				}				
  
@@ -377,7 +387,7 @@ WAPage {
 		onGroupCreated: {
 			setPicture(groupId, selectedGroupPicture)
 		}
-		onOnContactUpdated: {
+		onOnContactPictureUpdated: {
 			if (groupId == ujid) {
 				var participants;
 				for (var i=0; i<participantsModel.count; ++i) {

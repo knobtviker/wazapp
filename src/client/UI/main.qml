@@ -28,9 +28,10 @@ import "common"
 import "Contacts"
 import "Menu"
 import "Updater"
-import "Settings"
+//import "Settings"
 import "Conversations"
 import "Profile"
+import "Groups"
 import "common/js/settings.js" as MySettings
 
 //import com.nokia.extras 1.0
@@ -51,6 +52,7 @@ WAStackWindow {
 		mainBubbleColor = parseInt(MySettings.getSetting("BubbleColor", "1"))
 		sendWithEnterKey = MySettings.getSetting("SendWithEnterKey", "Yes")=="Yes"
 		resizeImages = MySettings.getSetting("ResizeImages", "No")=="Yes"
+		orientation = parseInt(MySettings.getSetting("Orientation", "0"))
 	}
 
     property string waversiontype:waversion.split('.').length == 4?'developer':'beta'
@@ -65,16 +67,18 @@ WAStackWindow {
 	property string selectedContactName: ""
 	property string selectedGroupPicture
 	property string bigProfileImage
+    property int orientation
 
     /****** Signal and Slot definitions *******/
 
+	signal setLanguage(string lang);
 	signal consoleDebug(string text);
 
 	signal statusChanged();
     signal changeStatus(string new_status)
     signal sendMessage(string jid, string msg);
     signal requestPresence(string jid);
-    signal refreshContacts(string jid);
+    signal refreshContacts(string mode, string jid);
     signal sendTyping(string jid);
     signal sendPaused(string jid);
     signal quit()
@@ -104,7 +108,7 @@ WAStackWindow {
 	signal setGroupSubject(string gjid, string subject);
 	signal getPictureIds(string jids);
 	signal getPicture(string jid, string type);
-	signal onContactUpdated(string ujid);
+	signal onContactPictureUpdated(string ujid);
 	signal setPicture(string jid, string file);
 	signal sendMediaMessage(string jid, string data, string image, string preview);
 	signal sendMediaImageFile(string jid, string file);
@@ -113,11 +117,14 @@ WAStackWindow {
 	signal sendLocation(string jid, string latitude, string longitude, string rotate);
     signal sendVCard(string jid, string contact);
 	signal removeSingleContact(string jid);
+	signal updatePushName(string ujid, string npush);
 
 	signal setBlockedContacts(string contacts);
 	signal setResizeImages(bool resize);
 
-	signal onMediaTransferProgressUpdated(int progress, string cjid, int message_id)
+	signal mediaTransferProgressUpdated(int mprogress, string mjid, int mid)
+	signal mediaTransferSuccess(string mjid, int mid, variant mobject)
+	signal mediaTransferError(string mjid, int mid, variant mobject)
 
 	signal selectedMedia(string url);
 	property string currentJid: ""
@@ -178,7 +185,10 @@ WAStackWindow {
     function onSleeping(){setIndicatorState("offline")}
     function onLoginFailed(){setIndicatorState("reregister")}
 
+	signal appFocusOut()
+
     function appFocusChanged(focus){
+		if (!focus) appFocusOut()
         var user_id = getActiveConversation()
         if (user_id){
             conversationActive(user_id);
@@ -273,6 +283,21 @@ WAStackWindow {
         return 0;
     }
 
+
+	property string contactForStatus
+	signal contactStatusUpdated(string nstatus)
+	function updateContactStatus(status) {
+	    for(var i =0; i<contactsModel.count; i++)
+        {
+            if(contactForStatus == contactsModel.get(i).jid) {
+				consoleDebug("FOUNDED CONTACT " + contactsModel.get(i).jid +" - " + status)
+				contactsModel.get(i).status = status
+			}
+        }
+		contactStatusUpdated(status)
+	}
+	
+	
 	property string myAccount
 	function setMyAccount(account) {
 		myAccount = account
@@ -311,18 +336,33 @@ WAStackWindow {
 		setBlockedContacts(blockedContacts)
 	}
 
+    function updateContactsData(contacts){
+		var added = 0
+		for(var i =0; i<contacts.length; i++) {
+			var add = true
+			for(var j =0; j<contactsModel.count; j++) {
+				if (contactsModel.get(j).jid==contacts[i].jid) {
+					add = false
+					break
+				}
+			}
+			if (add) {
+				contactsModel.insert(i, contacts[i]);
+			}
+		}
+    }
 
+	
     function pushContacts(contacts){
         waContacts.pushContacts(contacts)
     }
 
     function pushPhoneContacts(contacts){
         phoneContactsModel.clear()
-		consoleDebug("APPENDING CONTACTS:" + contacts.length)
+		consoleDebug("APPENDING PHONE CONTACTS:" + contacts.length)
 		for (var i=0; i<contacts.length; i++) {
-			//consoleDebug("APPENDING CONTACT:" + contacts[i][2])
-			phoneContactsModel.insert(phoneContactsModel.count,{"name":contacts[i][0], 
-									 "picture":contacts[i][1], "numbers":contacts[i][2].toString()})
+			phoneContactsModel.insert(phoneContactsModel.count,{"name":contacts[i][0], "picture":contacts[i][1], 
+										"numbers":contacts[i][2].toString(), "selected":false})
 		}
     }
 
@@ -436,21 +476,23 @@ WAStackWindow {
         }
     }
 
-    function onTyping(jid){
+	signal onTyping(string ujid)
+    /*function onTyping(jid){
         var conversation = waChats.getConversation(jid);
 
         if(conversation){
             conversation.setTyping();
         }
-    }
+    }*/
 
-    function onPaused(jid){
+	signal onPaused(string ujid)
+    /*function onPaused(jid){
         var conversation = waChats.getConversation(jid);
 
         if(conversation){
             conversation.setPaused();
         }
-    }
+    }*/
 
     function onMessageSent(message_id,jid){
         var conversation = waChats.getConversation(jid);
@@ -470,28 +512,28 @@ WAStackWindow {
 
         /**** Media ****/
     function onMediaTransferSuccess(jid,message_id,mediaObject){
-        consoleDebug("Caught media transfer success in main")
-        var conversation = waChats.getConversation(jid);
+        //consoleDebug("Caught media transfer success in main")
+        //var conversation = waChats.getConversation(jid);
 
-        if(conversation)
-            conversation.mediaTransferSuccess(message_id,mediaObject);
+        //if(conversation)
+            mediaTransferSuccess(jid,message_id,mediaObject);
     }
 
     function onMediaTransferError(jid,message_id,mediaObject){
-        consoleDebug("ERROR!! "+jid)
-        var conversation = waChats.getConversation(jid);
+        //consoleDebug("ERROR!! "+jid)
+        //var conversation = waChats.getConversation(jid);
 
-        if(conversation)
-            conversation.mediaTransferError(message_id,mediaObject);
+        //if(conversation)
+            mediaTransferError(jid,message_id,mediaObject);
     }
 
-    /*function onMediaTransferProgressUpdated(progress,jid,message_id){
-        consoleDebug("UPDATED PROGRESS "+progress + " for " + jid + " - message id: " + message_id)
-        var conversation = waChats.getConversation(jid);
+    function onMediaTransferProgressUpdated(progress,jid,message_id){
+        //consoleDebug("UPDATED PROGRESS "+progress + " for " + jid + " - message id: " + message_id)
+        //var conversation = waChats.getConversation(jid);
 
-        if(conversation)
-            conversation.mediaTransferProgressUpdated(progress,message_id);
-    }*/
+        //if(conversation)
+            mediaTransferProgressUpdated(progress,jid,message_id);
+    }
         /************/
 
 
@@ -501,9 +543,9 @@ WAStackWindow {
         id:updatePage
     }
 
-    Settings{
+    /*Settings{
         id:settingsPage
-    }
+    }*/
 
 	SendPicture {
 		id:sendPicture
@@ -523,6 +565,14 @@ WAStackWindow {
 
 	SelectPicture {
 		id:setProfilePicture
+	}
+
+	SelectContacts {
+		id: shareSyncContacts
+	}
+
+	AddContacts {
+		id: addContacts
 	}
 
     LoadingPage{

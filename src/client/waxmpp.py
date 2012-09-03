@@ -427,23 +427,23 @@ class WAEventHandler(WAEventBase):
 
 		if img.height() > img.width():
 			result = img.scaledToWidth(320,Qt.SmoothTransformation);
-			result = result.copy(result.width()/2-28,result.height()/2-25,100,100);
+			result = result.copy(result.width()/2-28,result.height()/2-25,80,80);
 		elif img.height() < img.width():
 			result = img.scaledToHeight(320,Qt.SmoothTransformation);
-			result = result.copy(result.width()/2-25,result.height()/2-28,100,100);
+			result = result.copy(result.width()/2-25,result.height()/2-28,80,80);
 		#result = img.scaled(96, 96, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation);
 
-		result.save( "/home/user/.cache/wazapp/tempimg2.jpg", "JPG" );
+		result.save( "/home/user/.cache/wazapp/tempimg2.png", "PNG" );
 
-		f = open("/home/user/.cache/wazapp/tempimg2.jpg", 'r')
+		f = open("/home/user/.cache/wazapp/tempimg2.png", 'r')
 		stream = base64.b64encode(f.read())
 		f.close()
 
 
 		os.remove("/home/user/.cache/wazapp/tempimg.png")
-		os.remove("/home/user/.cache/wazapp/tempimg2.jpg")
+		os.remove("/home/user/.cache/wazapp/tempimg2.png")
 
-		self._d("sending location to "+jid)
+		self._d("sending location (" + latitude + ":" + longitude + ") to "+jid)
 		fmsg = WAXMPP.message_store.createMessage(jid);
 		
 		mediaItem = WAXMPP.message_store.store.Media.create()
@@ -658,7 +658,9 @@ class WAEventHandler(WAEventBase):
 						
 			msgContent = fmsg.content
 			newContent = msgContent
-			contactName = msg_contact.name if msg_contact.name is not None else pushName
+			contactName = msg_contact.name
+			if contactName is None or contactName == "":
+				contactName = pushName
 			if fmsg.type == 23:
 				newContent = QtCore.QCoreApplication.translate("WAEventHandler", "%1 has changed the group picture")
 				newContent = newContent.replace("%1", contactName)
@@ -1144,21 +1146,24 @@ class StanzaReader(QThread):
 		notifNode = messageNode.getChild("notify")
 		if notifNode is not None:
 			pushName = notifNode.getAttributeValue("name");
+			pushName = pushName.decode("utf8")
 
 
 		if fromAttribute is not None and "@s.whatsapp.net" in fromAttribute and pushName is not None:
 			self._d("Setting Push Name: "+pushName+" to "+fromAttribute)
-			#contact = WAXMPP.message_store.store.Contact.getOrCreateContactByJid(fromAttribute)
-			#contact.setData({"jid":fromAttribute,"number":fromAttribute.split('@')[0],"pushname":pushName})
-			#contact.save()
-			self.eventHandler.setPushName.emit(fromAttribute,pushName)
+			contact = WAXMPP.message_store.store.Contact.getOrCreateContactByJid(fromAttribute)
+			if contact.pushname != pushName:
+				contact.setData({"jid":fromAttribute,"number":fromAttribute.split('@')[0],"pushname":pushName})
+				contact.save()
+				self.eventHandler.setPushName.emit(fromAttribute,pushName)
 
 		if fromAttribute is not None and "@g.us" in fromAttribute and author is not None and pushName is not None:
 			self._d("Setting Push Name: "+pushName+" to "+author)
-			#contact = WAXMPP.message_store.store.Contact.getOrCreateContactByJid(author)
-			#contact.setData({"jid":author,"number":author.split('@')[0],"pushname":pushName})
-			#contact.save()
-			self.eventHandler.setPushName.emit(author,pushName)
+			contact = WAXMPP.message_store.store.Contact.getOrCreateContactByJid(author)
+			if contact.pushname != pushName:
+				contact.setData({"jid":author,"number":author.split('@')[0],"pushname":pushName})
+				contact.save()
+				self.eventHandler.setPushName.emit(author,pushName)
 		
 		
 		if fromAttribute is not None and fromAttribute in self.eventHandler.blockedContacts:
@@ -1178,7 +1183,6 @@ class StanzaReader(QThread):
 		fmsg.conversation_id = conversation
 		fmsg.Conversation = conversation
 		
-		#fmsg.setData({"push":pushName});
 		
 		
 		msg_id = messageNode.getAttributeValue("id");
@@ -1285,7 +1289,7 @@ class StanzaReader(QThread):
 
 			if self.eventHandler is not None and cont is True:
 				signal = True
-				contact = WAXMPP.message_store.store.Contact.getOrCreateContactByJid(author)
+				#contact = WAXMPP.message_store.store.Contact.getOrCreateContactByJid(author)
 				fmsg.contact_id = contact.id
 				fmsg.contact = contact
 				
@@ -1940,7 +1944,7 @@ class WAXMPP():
 
 
 	def sendMessageWithLocation(self,fmsg,latitude,longitude,preview):
-		bodyNode = ProtocolTreeNode("media", {"xmlns":"urn:xmpp:whatsapp:mms","type":"location","latitude":latitude,"longitude":longitude},None,str(preview))
+		bodyNode = ProtocolTreeNode("media", {"xmlns":"urn:xmpp:whatsapp:mms","type":"location","latitude":latitude,"longitude":longitude},None,preview)
 		self.out.write(self.getMessageNode(fmsg,bodyNode));
 		self.msg_id+=1;
 

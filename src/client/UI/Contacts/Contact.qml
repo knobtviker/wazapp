@@ -66,7 +66,7 @@ Rectangle{
 
 	Connections {
 		target: appWindow
-		onOnContactUpdated: {
+		onOnContactPictureUpdated: {
 			if (jid == ujid) {
 				contact_picture.imgsource = ""
 				contact_picture.imgsource = getPicture()
@@ -87,27 +87,19 @@ Rectangle{
 		onPressAndHold: container.optionsRequested()
         onClicked:{
             consoleDebug("CLICKED");
-            if(ContactHelper.conversation){
+			consoleDebug("OPENING CONTACT FOR CONVERSATION: " + jid)
+
+            /*if(ContactHelper.conversation){
                 //ContactHelper.conversation.jid="sdgsg-fsdfsdf"
-				/*if (!ContactHelper.conversation.opened) {
-					ContactHelper.conversation.loadReverse = true
-					ContactHelper.conversation.loadMoreMessages(19)
-					ContactHelper.conversation.loadReverse = false
-				}*/
                 ContactHelper.conversation.open()
-             }else{
+             }else{*/
                 consoleDebug("CONTACT: NOT FOUND")
 				container.clicked() // Needed to clear quick search
                 ContactHelper.conversation = waChats.getOrCreateConversation(jid);
                 setConversation(ContactHelper.conversation)
                 ContactHelper.conversation.addContact(container);
-				/*if (!ContactHelper.conversation.opened) {
-					ContactHelper.conversation.loadReverse = true
-					ContactHelper.conversation.loadMoreMessages(19)
-					ContactHelper.conversation.loadReverse = false
-				}*/
                 ContactHelper.conversation.open();
-            }
+            //}
         }
     }
 

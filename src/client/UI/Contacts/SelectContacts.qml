@@ -28,19 +28,38 @@ import "../Contacts"
 WAPage {
     id: contactsContainer
 
+	property string mode: "sync"
+
 	property int total: 0
-	property string selectedContacts: ""
+	//property string selectedContacts: ""
 
     onStatusChanged: {
         if(status == PageStatus.Activating){
+			selectedContacts = ""
 			list_view1.positionViewAtBeginning()
 		}
 		if(status == PageStatus.Active){
 			searchbar.height = 0
 		}
+        if(status == PageStatus.Inactive){
+			unselectAll()
+		}
 	}
 
 	tools: contactsTool
+
+
+	function selectAll() {
+		for (var i=0; i<phoneContactsModel.count; i++) {
+			phoneContactsModel.get(i).selected = true
+		}
+	}
+
+	function unselectAll() {
+		for (var i=0; i<phoneContactsModel.count; i++) {
+			phoneContactsModel.get(i).selected = false
+		}
+	}
 
     function hideSearchBar() {
         searchbar.h1 = 71
@@ -99,7 +118,7 @@ WAPage {
 			property string showContactName: searchInput.text.length>0 ? replaceText(model.name, searchInput.text) : model.name
 			property string picture: model.picture !== "" ? model.picture : "../common/images/user.png"
 
-			property bool isSelected: selectedContacts.indexOf(contactName)>-1
+			property bool isSelected: phoneContactsModel.get(model.index).selected
 
 			height: filtered ? 80 : 0
 			width: appWindow.inPortrait? 480:854
@@ -150,19 +169,12 @@ WAPage {
 				id:mouseArea
 				anchors.fill: parent
 				onClicked:{
-					consoleDebug("SELECTED OLD:" +selectedContacts)
-				    if (isSelected) {
-						consoleDebug("REMOVING "+contactName)
-						var newc = selectedContacts
-						newc = newc.replace(contactName,"")
-						newc = newc.replace(",,",",")
-						selectedContacts = newc
-						total = total -1
+					if (mode=="sync") {
+						phoneContactsModel.get(model.index).selected = !phoneContactsModel.get(model.index).selected
 					} else {
-						selectedContacts = selectedContacts + (selectedContacts!==""? ",":"") + contactName;
-						total = total +1
+						sendVCard(currentJid,phoneContactsModel.get(model.index).name)
+						pageStack.pop()
 					}
-					consoleDebug("SELECTED NEW:" +selectedContacts)
 				}
 			}
 
@@ -331,19 +343,13 @@ WAPage {
 			anchors.horizontalCenter: parent.horizontalCenter
 			width: 280
             text: total==list_view1.count ? qsTr("Unselect all") : qsTr("Select all")
-			visible: list_view1.count>0
+			visible: list_view1.count>0 & mode=="sync"
             onClicked: {
 				selectedContacts = ""
 				if (selbutton.text==qsTr("Select all")) {
-					total = list_view1.count
-					for (var i=0; i<list_view1.count; ++i) {
-						list_view1.currentIndex = i
-						//list_view1.currentItem.isSelected = true
-						selectedContacts = selectedContacts + (selectedContacts!==""? ",":"") + list_view1.currentItem.contactName;
-					}
+					selectAll()
 				} else {
-					selectedContacts = ""
-					total = 0
+					unselectAll()
 				}
 			}
         }
@@ -351,19 +357,21 @@ WAPage {
         ToolIcon {
             id: doneButton
             platformIconId: "toolbar-done"
-            enabled: total>0
+            //enabled: total>0
+			visible: mode=="sync"
             opacity: enabled? 1.0 : 0.5
             onClicked: {
 				var selected = ""
-				for (var i=0; i<list_view1.count; ++i) {
-					list_view1.currentIndex = i
-					if (list_view1.currentItem.isSelected) {
-		                selected = selected + (selected!==""? ",":"") + list_view1.currentItem.myData.numbers
+				for (var i=0; i<phoneContactsModel.count; i++) {
+					if (phoneContactsModel.get(i).selected) {
+		                selected = selected + (selected!==""? ",":"") + phoneContactsModel.get(i).numbers
 					}
 				}
-				//consoleDebug("SELECTED CONTACTS:" + selected);
-				pageStack.replace(loadingPage);
-				appWindow.refreshContacts(selected)
+				if (selected!="") {
+					consoleDebug("SELECTED CONTACTS:" + selected);
+					pageStack.replace(loadingPage);
+					appWindow.refreshContacts("SYNC", selected)
+				}
 			}
         }
 

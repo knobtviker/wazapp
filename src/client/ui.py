@@ -33,6 +33,7 @@ from threading import Timer
 from waservice import WAService
 import dbus
 from wadebug import UIDebug
+import os, shutil
 
 class WAUI(QDeclarativeView):
 	quit = QtCore.Signal()
@@ -70,12 +71,15 @@ class WAUI(QDeclarativeView):
 		self.c.contactsRefreshed.connect(self.rootObject().onRefreshSuccess);
 		self.c.contactsRefreshFailed.connect(self.rootObject().onRefreshFail);
 		self.c.contactsSyncStatusChanged.connect(self.rootObject().onContactsSyncStatusChanged);
-		self.c.contactUpdated.connect(self.rootObject().onContactUpdated);
+		self.c.contactPictureUpdated.connect(self.rootObject().onContactPictureUpdated);
+		#self.c.contactUpdated.connect(self.rootObject().onContactUpdated);
+		#self.c.contactAdded.connect(self.onContactAdded);
 		self.rootObject().refreshContacts.connect(self.c.resync)
 		self.rootObject().sendSMS.connect(self.sendSMS)
 		self.rootObject().makeCall.connect(self.makeCall)
 		self.rootObject().sendVCard.connect(self.sendVCard)
 		self.rootObject().consoleDebug.connect(self.consoleDebug)
+		self.rootObject().setLanguage.connect(self.setLanguage)
 		
 				
 		#Changed by Tarek: connected directly to QContactManager living inside contacts manager
@@ -107,6 +111,7 @@ class WAUI(QDeclarativeView):
 			self.onFocus();
 	
 	def onUnfocus(self):
+		self._d("FOCUS OUT")
 		self.focus = False
 		self.rootObject().appFocusChanged(False);
 		self.idleTimeout = Timer(5,self.whatsapp.eventHandler.onUnavailable)
@@ -152,6 +157,11 @@ class WAUI(QDeclarativeView):
 		
 		#reg.start();
 		
+	def setLanguage(self,lang):
+		if os.path.isfile("/home/user/.wazapp/language.qm"):
+			os.remove("/home/user/.wazapp/language.qm")
+		shutil.copyfile("/opt/waxmppplugin/bin/wazapp/i18n/" + lang + ".qm", "/home/user/.wazapp/language.qm")
+
 
 	def consoleDebug(self,text):
 		self._d(text);
@@ -187,17 +197,26 @@ class WAUI(QDeclarativeView):
 		self.c.updateContact(jid);
 	
 	def updatePushName(self, jid, push):
-		self.c.updateContactPushName(jid,push);
+		#self.c.updateContactPushName(jid,push);
+		self._d("UPDATING CONTACTS");
+		contacts = self.c.getContacts();
+		self.rootObject().updateContactsData(contacts);
+		self.rootObject().updatePushName.emit(jid,push);
+		
 
-	def populateContacts(self):
+	def populateContacts(self, mode, status=""):
 		#syncer = ContactsSyncer(self.store);
 		
 		#self.c.refreshing.connect(syncer.onRefreshing);
 		#syncer.done.connect(c.updateContacts);
+		if (mode == "STATUS"):
+			self._d("UPDATE CONTACT STATUS");
+			self.rootObject().updateContactStatus(status)
 
-		self._d("POPULATE CONTACTS");
-		contacts = self.c.getContacts();
-		self.rootObject().pushContacts(contacts);
+		else:
+			self._d("POPULATE CONTACTS");
+			contacts = self.c.getContacts();
+			self.rootObject().pushContacts(contacts);
 
 		#if self.whatsapp is not None:
 		#	self.whatsapp.eventHandler.networkDisconnected()
@@ -231,7 +250,7 @@ class WAUI(QDeclarativeView):
 		activeConvJId = QDeclarativeProperty(self.rootObject(),"activeConvJId").read();
 		
 		#self.rootContext().contextProperty("activeConvJId");
-		self._d("DONE")
+		self._d("DONE - " + str(activeConvJId))
 		self._d(activeConvJId)
 		
 		return activeConvJId
@@ -280,6 +299,7 @@ class WAUI(QDeclarativeView):
 		whatsapp.eventHandler.profilePictureUpdated.connect(self.updateContact);
 
 		whatsapp.eventHandler.setPushName.connect(self.updatePushName);
+		#whatsapp.eventHandler.setPushName.connect(self.rootObject().updatePushName);
 		#whatsapp.eventHandler.profilePictureUpdated.connect(self.rootObject().onPictureUpdated);
 
 		whatsapp.eventHandler.mediaTransferSuccess.connect(self.rootObject().onMediaTransferSuccess);
