@@ -320,10 +320,7 @@ WAPage {
         ListView {
             id: mediaList
             Component.onCompleted: {
-                //getContactMediaByJid(profileUser)
-                //for (var i=0; i<result.length;i++) {
-                //    console.log(i,result[i].local_path)
-                //}
+                getContactMediaByJid(profileUser)
             }
             orientation: ListView.Horizontal
             width: parent.width -32
