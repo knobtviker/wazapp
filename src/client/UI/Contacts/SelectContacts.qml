@@ -24,6 +24,7 @@ import com.nokia.meego 1.0
 
 import "../common"
 import "../Contacts"
+import "../common/WAListView/Components"
 
 WAPage {
     id: contactsContainer
@@ -31,7 +32,8 @@ WAPage {
 	property string mode: "sync"
 
 	property int total: 0
-	//property string selectedContacts: ""
+
+
 
     onStatusChanged: {
         if(status == PageStatus.Activating){
@@ -40,24 +42,38 @@ WAPage {
 		}
 		if(status == PageStatus.Active){
 			searchbar.height = 0
+            if (phoneContactsModel.count==0) {
+                 appWindow.phoneContactsReady.connect(onPhoneContactsReady)
+
+				populatePhoneContacts()
+
+            } else {
+                 list_view1.model = phoneContactsModel
+            }
+
 		}
         if(status == PageStatus.Inactive){
+			searchInput.text = ""
 			unselectAll()
 		}
 	}
+
+    function onPhoneContactsReady(){
+          list_view1.model = phoneContactsModel
+    }
 
 	tools: contactsTool
 
 
 	function selectAll() {
 		for (var i=0; i<phoneContactsModel.count; i++) {
-			phoneContactsModel.get(i).selected = true
+			selectedContacts = selectedContacts + (selectedContacts!==""? ",":"") + phoneContactsModel.get(i).numbers
 		}
 	}
 
 	function unselectAll() {
 		for (var i=0; i<phoneContactsModel.count; i++) {
-			phoneContactsModel.get(i).selected = false
+			selectedContacts = ""
 		}
 	}
 
@@ -118,7 +134,7 @@ WAPage {
 			property string showContactName: searchInput.text.length>0 ? replaceText(model.name, searchInput.text) : model.name
 			property string picture: model.picture !== "" ? model.picture : "../common/images/user.png"
 
-			property bool isSelected: phoneContactsModel.get(model.index).selected
+			property bool isSelected: selectedContacts.indexOf(model.numbers.toString())>-1
 
 			height: filtered ? 80 : 0
 			width: appWindow.inPortrait? 480:854
@@ -170,7 +186,13 @@ WAPage {
 				anchors.fill: parent
 				onClicked:{
 					if (mode=="sync") {
-						phoneContactsModel.get(model.index).selected = !phoneContactsModel.get(model.index).selected
+						if (selectedContacts.indexOf(model.numbers.toString())==-1) {
+							selectedContacts = selectedContacts + (selectedContacts!==""? ",":"") + model.numbers.toString()
+							selectedContacts.replace(",,",",")
+						} else {
+							selectedContacts = selectedContacts.replace(model.numbers.toString(),"")
+							selectedContacts.replace(",,",",")
+						}
 					} else {
 						sendVCard(currentJid,phoneContactsModel.get(model.index).name)
 						pageStack.pop()
@@ -182,11 +204,19 @@ WAPage {
     }
 
 	WAHeader{
-		title: qsTr("Select contacts")
+		title: mode=="sync" ? qsTr("Select contacts") :qsTr("Select contact")
 		anchors.top:parent.top
 		width:parent.width
 		height: 73
 	}
+
+    BusyIndicator {
+        id: busyIndicatorGridCollection
+        implicitWidth: 96
+        anchors.centerIn: parent
+        visible: list_view1.count==0
+        running: visible
+    }
 
 	Rectangle {
 		id: searchbar
@@ -262,8 +292,6 @@ WAPage {
         transitions: Transition {
             NumberAnimation { properties: "opacity"; easing.type: Easing.InOutQuad; duration: 300 }
         }
-
-
 	}
 
     Rectangle {
@@ -292,13 +320,13 @@ WAPage {
             id: list_view1
 			anchors.fill: parent
             clip: true
-            model: phoneContactsModel
+            //model: phoneContactsModel
             delegate: myDelegate
             spacing: 1
 			cacheBuffer: 30000
 			highlightFollowsCurrentItem: false
 
-            section.property: "displayLabel"
+            section.property: "name"
             section.criteria: ViewSection.FirstCharacter
 
             section.delegate: GroupSeparator {
@@ -334,7 +362,10 @@ WAPage {
 
         ToolIcon{
             platformIconId: "toolbar-back"
-       		onClicked: pageStack.pop()
+       		onClicked: {
+				selectedContacts = ""
+				pageStack.pop()
+			}
         }
 
         ToolButton
@@ -361,16 +392,11 @@ WAPage {
 			visible: mode=="sync"
             opacity: enabled? 1.0 : 0.5
             onClicked: {
-				var selected = ""
-				for (var i=0; i<phoneContactsModel.count; i++) {
-					if (phoneContactsModel.get(i).selected) {
-		                selected = selected + (selected!==""? ",":"") + phoneContactsModel.get(i).numbers
-					}
-				}
-				if (selected!="") {
-					consoleDebug("SELECTED CONTACTS:" + selected);
-					pageStack.replace(loadingPage);
-					appWindow.refreshContacts("SYNC", selected)
+				if (selectedContacts!="") {
+					//consoleDebug("SELECTED CONTACTS:" + selectedContacts);
+					//pageStack.replace(loadingPage);
+					pageStack.pop()
+					appWindow.refreshContacts("SYNC", selectedContacts)
 				}
 			}
         }

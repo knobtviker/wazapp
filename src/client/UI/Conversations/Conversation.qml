@@ -11,10 +11,16 @@ import "../EmojiDialog"
 WAPage {
     id:conversation_view
 
+
     onStatusChanged: {
         if(status == PageStatus.Deactivating){
-            appWindow.setActiveConv("")
-			//opened = false
+            chat_text.visible = false
+			sendMediaWindow.opacity = 0
+        }
+        else if(status == PageStatus.Activating){
+            chat_text.visible = true
+			if(!ustatus.lastSeenOn) //display last fetched one until new one is there, instead of blank
+				ustatus.state = "default"
         }
         else if(status == PageStatus.Active){
             appWindow.conversationActive(jid);
@@ -80,10 +86,13 @@ WAPage {
 
 	Connections {
 		target: appWindow
+
 		onGroupInfoUpdated: {
-			var data = groupInfoData.split("<<->>")
-			if (jid==data[0]) {
+			if (jid==gjid) {
+				var data = gdata.split("<<->>")
+				subject = data[2]
 				owner = data[1]
+				title = getTitle()
 			}
 		}
 		onOnContactPictureUpdated: {
@@ -97,39 +106,7 @@ WAPage {
 				sendMediaMessage(jid, url)
 		}
 
-		onMediaTransferProgressUpdated: {
-			if (jid == mjid) {
-				var bubble = getBubble(mid);
-				if (bubble) {
-					//consoleDebug("UPDATING BUBBLE " + mjid + " - Progress: " + mprogress)
-					bubble.progress = mprogress
-				}
-			}
-		}
-
-		onMediaTransferSuccess: {
-			if (jid == mjid) {
-				var bubble = getBubble(mid);
-		        if(bubble) {
-					consoleDebug("MESSAGE SENT BUBBLE " + mjid)
-					bubble.media = mobject
-				    bubble.progress = 0
-				}
-			}
-		}
-
-		onMediaTransferError: {
-			if (jid == mjid) {
-				var bubble = getBubble(mid);
-		        if(bubble) {
-					consoleDebug("MESSAGE ERROR BUBBLE " + mjid)
-					bubble.media = mobject
-				    bubble.progress = 0
-				}
-			}
-		}
-
-		onUpdatePushName: {
+		onUpdateContactName: {
 			if (jid == ujid) {
 				if (title = jid.split('@')[0]) {
 					consoleDebug("Update push name in Conversation")
@@ -146,6 +123,19 @@ WAPage {
 			if (jid == ujid) setPaused()
 		}
 
+		onOpenPreviewPicture: {
+			if (jid == ujid) {
+				capturePreview.imgsource = "file://" + picturefile
+				capturePreview.oriented = rotation
+				capturePreview.capturetype = capturemode
+				pageStack.push(capturePreview)
+			}
+		}
+
+	}
+
+	CapturePreview {
+		id: capturePreview
 	}
 
 	function setPositionToAdd(value) {
@@ -167,6 +157,7 @@ WAPage {
 		consoleDebug("END ADDING MESSAGES")
 		positionToAdd = conv_data.count
 		loadReverse = false
+		appWindow.checkUnreadMessages()
     }
 
     function getContacts(){return ConversationHelper.contacts;}
@@ -186,7 +177,7 @@ WAPage {
         var pic="";
 
         if(isGroup())
-            pic = "/home/user/.cache/wazapp/contacts/" + jid.split('@')[0] + ".png"
+            pic = WAConstants.CACHE_CONTACTS + "/" + jid.split('@')[0] + ".png"
         else if(contacts && contacts.length)
             pic = getAuthorPicture(jid) //contacts[0].contactPicture;
 
@@ -358,8 +349,16 @@ WAPage {
     function addMessage(message){
 		//if (!opened && conv_data.count==2)
 		//	conv_data.remove(0)
+
+        /*if (!loadReverse && myAccount!="" && message.type!="1") {
+			if (isGroup() && vibraForGroup=="Yes") appWindow.vibrateNow()
+			else if (!isGroup() && vibraForPersonal=="Yes") appWindow.vibrateNow()
+        }*/
+
 		ConvScript.addMessage(loadReverse,positionToAdd,message);
 		positionToAdd = positionToAdd+1
+		updateLastMessage()
+		if (!loadReverse) appWindow.checkUnreadMessages();
 	}
 
     function getNameForBubble(uname)
@@ -390,15 +389,17 @@ WAPage {
 		
         Item {
             anchors.verticalCenter: parent.verticalCenter
-            width: parent.width - 32
+            width: parent.width
             anchors.left: parent.left
-            anchors.leftMargin: 16
+            anchors.leftMargin: 0
 			height: 50
 
 			BorderImage {
 				width: 86
 				height: 42
 				anchors.verticalCenter: parent.verticalCenter
+				anchors.left: parent.left
+				anchors.leftMargin: 16
 				source: "image://theme/meegotouch-sheet-button-"+(theme.inverted?"inverted-":"")+
 						"background" + (bcArea.pressed? "-pressed" : "")
 				border { left: 22; right: 22; bottom: 22; top: 22; }
@@ -408,37 +409,41 @@ WAPage {
 					font.pixelSize: 22; font.bold: true
                     text: qsTr("Back")
 				}
-				MouseArea {
-					id: bcArea
-					anchors.fill: parent
-					onClicked: { 
-                        //chatsTabButton.clicked()
-						if(mediaContentSlip.width>48) mediaContentSlipOff.start();
-						appWindow.pageStack.pop(1)
-						if (conv_data.count==0 && !isGroup()) {
-							// EMPTY CONVERSATION. REMOVING
-							deleteConversation(jid)
-							removeChatItem(jid)
-						}
-                    }
-				}
+			}
+
+			MouseArea {
+				id: bcArea
+				anchors.top: parent.top
+				anchors.left: parent.left
+				height: 73
+				width: 130
+				onClicked: { 
+                    //chatsTabButton.clicked()
+					appWindow.setActiveConv("")
+					appWindow.pageStack.pop(1)
+					if (conv_data.count==0 && !isGroup()) {
+						// EMPTY CONVERSATION. REMOVING
+						deleteConversation(jid)
+						removeChatItem(jid)
+					}
+                }
 			}
 
 	        Label {
                 id: conversationTitle
                 text: title
-				width: parent.width - 62
+				width: parent.width - 74
 	            horizontalAlignment: Text.AlignRight
 				verticalAlignment: Text.AlignTop
 	            font.bold: true
                 font.italic: isGroup() && subject==""
-				y: isGroup() ? 8 : -1
+				y: isGroup() ? 8 : (ustatus.state=="default"? 8 : -1)
 				height: 28
 	        }
 			UserStatus {
 		        id:ustatus
 		        height:30
-		        itemwidth: parent.width -62
+		        itemwidth: parent.width -74
                 anchors.top: conversationTitle.bottom
 				visible: !isGroup()
 		    }
@@ -448,20 +453,23 @@ WAPage {
                 imgsource:picture
                 anchors.verticalCenter: parent.verticalCenter
 				anchors.right: parent.right
-				MouseArea {
-					anchors.fill: parent
-					// User Profile window. Not finished yet
-					onClicked: { 
-						if (!conversation_view.isGroup()) {
-							profileUser = jid
-							pageStack.push (Qt.resolvedUrl("../Contacts/ContactProfile.qml"))
-						} else {
-							profileUser = jid
-							pageStack.push (Qt.resolvedUrl("../Groups/GroupProfile.qml"))
-						}
+				anchors.rightMargin: 16
+            }
+			MouseArea {
+				anchors.right: parent.right
+				anchors.top: parent.top
+				height: 73
+				width: 84
+				onClicked: { 
+					if (!conversation_view.isGroup()) {
+						profileUser = jid
+						pageStack.push (Qt.resolvedUrl("../Contacts/ContactProfile.qml"))
+					} else {
+						profileUser = jid
+						pageStack.push (Qt.resolvedUrl("../Groups/GroupProfile.qml"))
 					}
 				}
-            }
+			}
         }
 
 		Rectangle {
@@ -546,16 +554,17 @@ WAPage {
         id:myDelegate
 
         BubbleDelegate{
-			jid: jid
+			jid: conversation_view.jid
             mediatype_id: model.mediatype_id
             message: model.type==20 || model.type==21 ? getAuthor(model.content) : model.content
-            media:model.media
+            media: model.media
             date: model.timestamp
             from_me: model.type
-            progress:model.progress
-            name: mediatype_id==10 || from_me==1 || !isGroup ? "" : getAuthor(model.author.jid).split('@')[0]
-            author:model.author
-		 	state_status:isGroup && model.status == "pending"?"delivered":model.status
+            progress: model.progress
+			msg_id: model.msg_id
+            name: mediatype_id==10 || from_me==1 || !isGroup? "" : model.type==22? model.author.jid : getAuthor(model.author.jid)
+            author: model.author
+		 	state_status: isGroup && model.status == "pending"? "delivered" : model.status
 			isGroup: conversation_view.isGroup()
             bubbleColor: from_me==1 ? 1 : isGroup ? getBubbleColor(model.author.jid) : mainBubbleColor
 
@@ -572,7 +581,7 @@ WAPage {
 			Connections {
 				target: appWindow
 
-				onUpdatePushName: {
+				onUpdateContactName: {
 					if (model.author.jid == ujid) {
 						if (model.author.jid = ujid.split('@')[0] && isGroup && from_me==0) {
 							consoleDebug("Update push name in Conversation bubbles")
@@ -693,6 +702,7 @@ WAPage {
 
                     onSendButtonClicked:{
                         //consoleDebug("SEND CLICKED");
+						sendMediaWindow.opacity = 0
 
                         showSendButton=true;
                         forceFocusToChatText()
@@ -801,21 +811,24 @@ WAPage {
 					}
 					
                     onTextChanged: {
-						//chat_text.text = Helpers.emojify2(chat_text.text)
+                        sendMediaWindow.opacity = 0
+
+                        //chat_text.text = Helpers.emojify2(chat_text.text)
                         if(!typingEnabled)
                         {
                             //to prevent initial set of placeHolderText from firing textChanged signal
                             typingEnabled = true
                             return
                         }
+                        if(!isGroup()) {
+                            if(!iamtyping) {
+                                consoleDebug("TYPING");
+                                sendTyping(jid);
+                            }
+                            iamtyping = true;
+                            typing_timer.restart();
 
-                        if(!iamtyping)
-                        {
-                            consoleDebug("TYPING");
-                            sendTyping(jid);
                         }
-                        iamtyping = true;
-                        typing_timer.restart();
                     }
 
                     platformSipAttributes: SipAttributes {
@@ -824,6 +837,8 @@ WAPage {
                     }
 
                     onEnterKeyClicked: { 
+						sendMediaWindow.opacity = 0
+
 						if (sendWithEnterKey) {
 							sendButtonClicked();
 							forceFocusToChatText()
@@ -856,9 +871,10 @@ WAPage {
                                 alreadyFocused = true
                                 goToEndOfList()
                             }
-                        } else
+                        } else {
                             alreadyFocused = false
-
+							sendMediaWindow.opacity = 0
+						}
                     }
                 }
             }
@@ -866,8 +882,49 @@ WAPage {
         }
     }
 
+	SendMedia {
+		id: sendMediaWindow
+		height: appWindow.inPortrait? 180 : 100
+		width: parent.width
+		opacity: 0
+		visible: opacity!=0
+		anchors.bottom: parent.bottom
+		anchors.bottomMargin: 90
 
+		Behavior on opacity {
+		    NumberAnimation { duration: 200 }
+		}
 
+		onSelected: {
+			sendMediaWindow.opacity = 0
+			if (value=="pic") {
+				pageStack.push(sendPicture)
+			} 
+			else if (value=="campic") {
+				openCamera(jid,"still-capture")
+				//pageStack.push(Qt.resolvedUrl("TakePicture.qml"))
+			} 
+			else if (value=="vid") {
+				pageStack.push(sendVideo)
+			}
+			else if (value=="camvid") {
+				openCamera(jid,"video-capture")
+			}
+			else if (value=="audio") {
+				pageStack.push(sendAudio)
+			}
+			else if (value=="rec") {
+				pageStack.push(sendAudioRec)
+			}
+			else if (value=="location") {
+				pageStack.push (Qt.resolvedUrl("Location.qml"))
+			}
+			else if (value=="vcard") {
+				shareSyncContacts.mode = "share"
+				pageStack.push(shareSyncContacts)
+			}
+		}
+	}
 
 
     function cleanText(txt){
@@ -882,6 +939,7 @@ WAPage {
 		return res;
     }
 
+
 	Rectangle {
 		id: input_button_holder
 		anchors.bottom: parent.bottom
@@ -895,6 +953,7 @@ WAPage {
 			id: input_button_holder_area
 			anchors.fill: parent
 			onClicked: { 
+				sendMediaWindow.opacity = 0
 				showSendButton=true; 
 				forceFocusToChatText()
 			}
@@ -920,145 +979,41 @@ WAPage {
 			anchors.leftMargin: 16
 		    anchors.verticalCenter: send_button.verticalCenter
             onClicked: {
-                //var component = Qt.createComponent("Emojidialog.qml");
-                //var sprite = component.createObject(conversation_view, {});
-				if(mediaContentSlip.width>48) mediaContentSlipOff.start();
+				sendMediaWindow.opacity = 0
                 emojiDialog.openDialog();
 		    }
 		}
 
-		Rectangle {
-			id: mediaContentSlip
-			width: 48
-			radius: media_button.width/2
-			height: 48
-			color: "gray"
+		Button {
+			id: media_button
 			anchors.left: emoji_button.right
-			anchors.leftMargin: 16
-			anchors.verticalCenter: send_button.verticalCenter
+			anchors.leftMargin: 12
+			anchors.verticalCenter: parent.verticalCenter
+			width: 50
+			height: width
+			iconSource: theme.inverted ? "../common/images/attachment-white.png" : "../common/images/attachment.png"
 
-			Button {
-				id: media_button
-				anchors.left: parent.left
-				anchors.leftMargin: -1
-				anchors.verticalCenter: parent.verticalCenter
-				width: 50
-				height: width
-			
-				iconSource: theme.inverted ? "../common/images/attachment-white.png" : "../common/images/attachment.png"
-				onClicked: {
-					forceFocusToChatText();
-					if ( mediaContentSlip.width == 48 ) {
-						mediaContentSlipOn.start();
-					} else {
-						mediaContentSlipOff.start();
-					}
-					forceFocusToChatText();
-				}
- 
-				SequentialAnimation {
-					id: mediaContentSlipOn;
-					NumberAnimation { target: mediaContentSlip; property: "width"; from: 48; to: 328; duration: 125; easing.type: Easing.InCubic }
-				}
- 
-				SequentialAnimation {
-					id: mediaContentSlipOff;
-					NumberAnimation { target: mediaContentSlip; property: "width"; from: 328; to: 48; duration: 125; easing.type: Easing.OutCubic }
-				}
+			onClicked: {
+				if (sendMediaWindow.visible) sendMediaWindow.opacity = 0
+				else sendMediaWindow.opacity = 1
+				showSendButton=true; 
+				forceFocusToChatText()
 			}
-
-			Button {
-	    		id: image_button
-	    		iconSource: theme.inverted ? "../common/images/image-white.png" : "../common/images/image.png"
-	    		width: mediaContentSlip.width == 328 ? 44 : 0
-				visible: width == 44 ? true : false
-	    		height: width
-	    		anchors.right: video_button.left
-	    		anchors.rightMargin: 10
-	    		anchors.verticalCenter: parent.verticalCenter
-	    		onClicked: {
-					mediaContentSlipOff.start();
-					pageStack.push(sendPicture)
-				}		
-			}	
-			Button {
-				id: video_button
-				iconSource: theme.inverted ? "../common/images/video-white.png" : "../common/images/video.png"
-	    		width: mediaContentSlip.width == 328 ? 44 : 0
-				visible: width == 44 ? true : false
-	    		height: width
-	    		anchors.right: audio_button.left
-	    		anchors.rightMargin: 10
-	    		anchors.verticalCenter: parent.verticalCenter
-	    		onClicked: {
-					mediaContentSlipOff.start();
-					pageStack.push(sendVideo)
-				}
-			}
-
-			Button {
-				id: audio_button
-				iconSource: theme.inverted ? "../common/images/audio-white.png" : "../common/images/audio.png"
-	    		width: mediaContentSlip.width == 328 ? 44 : 0
-				visible: width == 44 ? true : false
-	    		height: width
-	    		anchors.right: location_button.left
-	    		anchors.rightMargin: 10
-	    		anchors.verticalCenter: parent.verticalCenter
-				onClicked: {
-					mediaContentSlipOff.start();
-					pageStack.push(sendAudio)
-				}
-			}
-
-			Button {
-				id: location_button
-				iconSource: theme.inverted ? "../common/images/location-white.png" : "../common/images/location.png"
-	    		width: mediaContentSlip.width == 328 ? 44 : 0
-				visible: width == 44 ? true : false
-	    		height: width
-	    		anchors.right: vcard_button.left
-	    		anchors.rightMargin: 10
-	    		anchors.verticalCenter: parent.verticalCenter
-				onClicked: {
-					mediaContentSlipOff.start();
-					pageStack.push (Qt.resolvedUrl("Location.qml"))
-				}
-			}
-
-			Button {
-				id: vcard_button
-				iconSource: theme.inverted? "../common/images/contact-white.png" : "../common/images/contact.png"
-	    		width: mediaContentSlip.width == 328 ? 44 : 0
-				visible: width == 44 ? true : false
-	    		height: width
-	    		anchors.right: parent.right
-	    		anchors.rightMargin: 6
-	    		anchors.verticalCenter: parent.verticalCenter
-				onClicked: {
-					mediaContentSlipOff.start();
-					shareSyncContacts.mode = "share"
-					pageStack.push(shareSyncContacts)
-				}
-			}
-
-
 		}
 
 		Button
 		{
 		    id:send_button
-			visible: mediaContentSlip.width>48 && appWindow.inPortrait ? false : true
-		    platformStyle: ButtonStyle { inverted: true }
+			platformStyle: ButtonStyle { inverted: true }
 		    width:160
 		    height:50
 			text: qsTr("Send")
 		    anchors.right: parent.right
 			anchors.rightMargin: 16
 			y: 10
-			//enabled: cleanText(chat_text.text).trim()!=""
 		    onClicked: sendButtonClicked();
 		}
+
 	}
 
     TextField{
@@ -1099,7 +1054,7 @@ WAPage {
 
             WAMenuItem{
 				id: profileMenuItem
-				visible: conversation_view.isGroup() // && showContactDetails
+				visible: conversation_view.isGroup() && selectedMessage.author.jid!=myAccount
 				height: visible ? 80 : 0
                 text: qsTr("View contact profile")
                 onClicked:{
@@ -1138,33 +1093,5 @@ WAPage {
           }
     }
 
-    /*Component {
-        id: messagesListHeader
-
-        Item{
-            visible: hasMore
-            width:conv_items.width
-            height:visible?loadMoreButton.height+20:0;
-            Button{
-                id:loadMoreButton
-                text:qsTr("Load more...")
-				font.pixelSize: 22
-                onClicked: {
-					var cval = conv_items.count
-                    loadMoreMessages(15);
-					conv_items.positionViewAtIndex(conv_items.count -cval,ListView.Beginning)
-					conv_items.contentY = conv_items.contentY - 72
-                }
-                anchors.horizontalCenter:parent.horizontalCenter
-                anchors.verticalCenter: parent.verticalCenter
-                anchors.bottomMargin: 20
-                anchors.topMargin: 20
-            }
-          }
-    }*/
-
-    /*Component {
-        id: textInputComponent
-	*/
 
 }

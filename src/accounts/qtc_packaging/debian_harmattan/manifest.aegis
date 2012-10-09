@@ -11,6 +11,5 @@
             <for path="/opt/waxmppplugin/bin/waxmppplugin" />
             <for path="/opt/waxmppplugin/bin/waxmppaccount" />
             <for path="/opt/waxmppplugin/bin/wazapp/wazapp" />
-            <for path="/usr/bin/python" />
         </request>
 </aegis>

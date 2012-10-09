@@ -17,7 +17,7 @@ PARTICULAR PURPOSE. See the GNU General Public License for more details.
 You should have received a copy of the GNU General Public License along with 
 Wazapp. If not, see http://www.gnu.org/licenses/.
 '''
-import time, threading, select, os, urllib;
+import time, threading, select, os, urllib, hashlib;
 from utilities import Utilities, S40MD5Digest
 from protocoltreenode import BinTreeNodeWriter,BinTreeNodeReader,ProtocolTreeNode
 from connengine import MySocketConnection
@@ -41,9 +41,10 @@ import thread
 from watime import WATime
 from time import sleep
 import base64
-
+import shutil, datetime
 import Image
 from PIL.ExifTags import TAGS
+import subprocess
 
 
 class WAEventHandler(WAEventBase):
@@ -66,9 +67,9 @@ class WAEventHandler(WAEventBase):
 	updateAvailable = QtCore.Signal(dict);
 	
 	##############Media#####################
-	mediaTransferSuccess = QtCore.Signal(str,int,dict)
-	mediaTransferError = QtCore.Signal(str,int,dict)
-	mediaTransferProgressUpdated = QtCore.Signal(int,str,int)
+	mediaTransferSuccess = QtCore.Signal(int,str)
+	mediaTransferError = QtCore.Signal(int)
+	mediaTransferProgressUpdated = QtCore.Signal(int,int)
 	#########################################
 	
 	sendTyping = QtCore.Signal(str);
@@ -77,7 +78,7 @@ class WAEventHandler(WAEventBase):
 	getGroupInfo = QtCore.Signal(str);
 	createGroupChat = QtCore.Signal(str);
 	groupCreated = QtCore.Signal(str);
-	groupInfoUpdated = QtCore.Signal(str)
+	groupInfoUpdated = QtCore.Signal(str,str)
 	addParticipants = QtCore.Signal(str, str);
 	addedParticipants = QtCore.Signal();
 	removeParticipants = QtCore.Signal(str, str);
@@ -93,6 +94,10 @@ class WAEventHandler(WAEventBase):
 	profilePictureUpdated = QtCore.Signal(str);
 	setPicture = QtCore.Signal(str, str);
 	setPushName = QtCore.Signal(str, str);
+	imageRotated = QtCore.Signal(str);
+	getPicturesFinished = QtCore.Signal();
+	changeStatus = QtCore.Signal(str);
+	statusChanged = QtCore.Signal();
 	doQuit = QtCore.Signal();
 
 
@@ -113,6 +118,7 @@ class WAEventHandler(WAEventBase):
 		self.blockedContacts = "";
 
 		self.resizeImages = False;
+
 		
 		#self.connMonitor.sleeping.connect(self.networkUnavailable);
 		#self.connMonitor.checked.connect(self.checkConnection);
@@ -133,6 +139,7 @@ class WAEventHandler(WAEventBase):
 		self.getPictureIds.connect(self.conn.sendGetPictureIds);
 		self.getPicture.connect(self.conn.sendGetPicture);
 		self.setPicture.connect(self.conn.sendSetPicture);
+		self.changeStatus.connect(self.conn.sendChangeStatus);
 
 		self.connected.connect(self.conn.resendUnsent);
 		
@@ -218,7 +225,7 @@ class WAEventHandler(WAEventBase):
 		jid = message.getConversation().getJid()
 		media = message.getMedia()
 		
-		mediaHandler = WAMediaHandler(jid,message.id,media.remote_url,media.mediatype_id,self.account)
+		mediaHandler = WAMediaHandler(jid,message.id,media.remote_url,media.mediatype_id,media.id,self.account)
 		
 		mediaHandler.success.connect(self._mediaTransferSuccess)
 		mediaHandler.error.connect(self._mediaTransferError)
@@ -235,7 +242,7 @@ class WAEventHandler(WAEventBase):
 		jid = message.getConversation().getJid()
 		media = message.getMedia()
 		
-		mediaHandler = WAMediaHandler(jid,message.id,media.remote_url,media.mediatype_id,self.account)
+		mediaHandler = WAMediaHandler(jid,message.id,media.remote_url,media.mediatype_id,media.id,self.account)
 		
 		mediaHandler.success.connect(self._mediaTransferSuccess)
 		mediaHandler.error.connect(self._mediaTransferError)
@@ -252,7 +259,7 @@ class WAEventHandler(WAEventBase):
 		jid = message.getConversation().getJid()
 		media = message.getMedia()
 		
-		mediaHandler = WAMediaHandler(jid,message.id,media.local_path,media.mediatype_id,self.account,self.resizeImages)
+		mediaHandler = WAMediaHandler(jid,message.id,media.local_path,media.mediatype_id,media.id,self.account,self.resizeImages)
 		
 		mediaHandler.success.connect(self._mediaTransferSuccess)
 		mediaHandler.error.connect(self._mediaTransferError)
@@ -268,7 +275,7 @@ class WAEventHandler(WAEventBase):
 		jid = message.getConversation().getJid()
 		media = message.getMedia()
 		
-		mediaHandler = WAMediaHandler(jid,message.id,media.local_path,media.mediatype_id,self.account,self.resizeImages)
+		mediaHandler = WAMediaHandler(jid,message.id,media.local_path,media.mediatype_id,media.id,self.account,self.resizeImages)
 		
 		mediaHandler.success.connect(self._mediaTransferSuccess)
 		mediaHandler.error.connect(self._mediaTransferError)
@@ -279,7 +286,7 @@ class WAEventHandler(WAEventBase):
 		self.mediaHandlers.append(mediaHandler);
 	
 	
-	def _mediaTransferSuccess(self, jid, messageId, data, action):
+	def _mediaTransferSuccess(self, jid, messageId, data, action, mediaId):
 		try:
 			jid.index('-')
 			message = WAXMPP.message_store.store.Groupmessage.create()
@@ -300,12 +307,12 @@ class WAEventHandler(WAEventBase):
 			media.transfer_status = 2
 			media.save()
 			self._d(media.getModelData())
-			self.mediaTransferSuccess.emit(jid,messageId, media.getModelData())
+			self.mediaTransferSuccess.emit(mediaId,media.local_path)
 			if (action=="upload"):
 				self.sendMediaMessage(jid,messageId,data)
 
 		
-	def _mediaTransferError(self, jid, messageId):
+	def _mediaTransferError(self, jid, messageId, mediaId):
 		print "MULTIMEDIA HANDLING ERROR!!!"
 		try:
 			jid.index('-')
@@ -320,7 +327,7 @@ class WAEventHandler(WAEventBase):
 			media = message.getMedia()
 			media.transfer_status = 1
 			media.save()
-			self.mediaTransferError.emit(jid,messageId, media.getModelData())
+			self.mediaTransferError.emit(mediaId)
 	
 	
 	def onDirty(self,categories):
@@ -364,7 +371,7 @@ class WAEventHandler(WAEventBase):
 		
 		self.conn.changeState(2);
 		#DISABLED CHECK FOR UPDATES FOR NOW
-		#self.updater.run()
+		self.updater.run()
 		
 		#self.conn.disconnect()
 		
@@ -416,9 +423,12 @@ class WAEventHandler(WAEventBase):
 		self.conn.sendMessageWithBody(fmsg);
 
 	def sendLocation(self,jid,latitude,longitude,rotate):
+		latitude = latitude[:10]
+		longitude = longitude[:10]
+
 		self._d("Capturing preview...")
-		QPixmap.grabWindow(QApplication.desktop().winId()).save("/home/user/.cache/wazapp/tempimg.png", "PNG")
-		img = QImage("/home/user/.cache/wazapp/tempimg.png")
+		QPixmap.grabWindow(QApplication.desktop().winId()).save(WAConstants.CACHE_PATH+"/tempimg.png", "PNG")
+		img = QImage(WAConstants.CACHE_PATH+"/tempimg.png")
 
 		if rotate == "true":
 			rot = QTransform()
@@ -427,23 +437,22 @@ class WAEventHandler(WAEventBase):
 
 		if img.height() > img.width():
 			result = img.scaledToWidth(320,Qt.SmoothTransformation);
-			result = result.copy(result.width()/2-28,result.height()/2-25,80,80);
+			result = result.copy(result.width()/2-50,result.height()/2-50,100,100);
 		elif img.height() < img.width():
 			result = img.scaledToHeight(320,Qt.SmoothTransformation);
-			result = result.copy(result.width()/2-25,result.height()/2-28,80,80);
+			result = result.copy(result.width()/2-50,result.height()/2-50,100,100);
 		#result = img.scaled(96, 96, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation);
 
-		result.save( "/home/user/.cache/wazapp/tempimg2.png", "PNG" );
+		result.save( WAConstants.CACHE_PATH+"/tempimg2.jpg", "JPG" );
 
-		f = open("/home/user/.cache/wazapp/tempimg2.png", 'r')
+		f = open(WAConstants.CACHE_PATH+"/tempimg2.jpg", 'r')
 		stream = base64.b64encode(f.read())
 		f.close()
 
 
-		os.remove("/home/user/.cache/wazapp/tempimg.png")
-		os.remove("/home/user/.cache/wazapp/tempimg2.png")
+		os.remove(WAConstants.CACHE_PATH+"/tempimg.png")
+		os.remove(WAConstants.CACHE_PATH+"/tempimg2.jpg")
 
-		self._d("sending location (" + latitude + ":" + longitude + ") to "+jid)
 		fmsg = WAXMPP.message_store.createMessage(jid);
 		
 		mediaItem = WAXMPP.message_store.store.Media.create()
@@ -463,7 +472,7 @@ class WAEventHandler(WAEventBase):
 		fmsg.setData({"status":0,"content":fmsg.content,"type":1})
 		WAXMPP.message_store.pushMessage(jid,fmsg)
 		
-		self.conn.sendMessageWithLocation(fmsg,latitude,longitude,stream);
+		self.conn.sendMessageWithLocation(fmsg);
 
 
 	def setBlockedContacts(self,contacts):
@@ -475,14 +484,30 @@ class WAEventHandler(WAEventBase):
 		self._d("Resize images: " + str(resize))
 		self.resizeImages = resize;
 
+	def setPersonalRingtone(self,value):
+		self._d("Personal Ringtone: " + str(value))
+		self.notifier.personalRingtone = value;
+
+	def setPersonalVibrate(self,value):
+		self._d("Personal Vibrate: " + str(value))
+		self.notifier.personalVibrate = value;
+
+	def setGroupRingtone(self,value):
+		self._d("Group Ringtone: " + str(value))
+		self.notifier.groupRingtone = value;
+
+	def setGroupVibrate(self,value):
+		self._d("Group Vibrate: " + str(value))
+		self.notifier.groupVibrate = value;
+
 
 	def sendVCard(self,jid,contactName):
 		contactName = contactName.encode('utf-8')
-		self._d("Sending vcard: " + "/home/user/MyDocs/Wazapp/media/contacts/" + contactName + ".vcf")
+		self._d("Sending vcard: " + WAConstants.VCARD_PATH + "/" + contactName + ".vcf")
 
 		stream = ""
 		while not "END:VCARD" in stream:
-			f = open("/home/user/MyDocs/Wazapp/media/contacts/"+contactName+".vcf", 'r')
+			f = open(WAConstants.VCARD_PATH + "/"+contactName+".vcf", 'r')
 			stream = f.read()
 			f.close()
 			sleep(0.1)
@@ -494,7 +519,7 @@ class WAEventHandler(WAEventBase):
 		mediaItem = WAXMPP.message_store.store.Media.create()
 		mediaItem.mediatype_id = 6
 		mediaItem.remote_url = None
-		mediaItem.local_path = "/home/user/MyDocs/Wazapp/media/contacts/"+contactName+".vcf"
+		mediaItem.local_path = WAConstants.VCARD_PATH + "/"+contactName+".vcf"
 		mediaItem.transfer_status = 2
 
 		vcardImage = ""
@@ -523,8 +548,11 @@ class WAEventHandler(WAEventBase):
 			print "Vcard too large! Removing photo..."
 			n = stream.find("PHOTO")
 			stream = stream[:n] + "END:VCARD"
-		else:
-			mediaItem.preview = vcardImage
+			f = open(WAConstants.VCARD_PATH + "/"+contactName+".vcf", 'w')
+			f.write(stream)
+			f.close()
+
+		mediaItem.preview = vcardImage
 
 		fmsg.content = contactName
 		fmsg.Media = mediaItem
@@ -536,7 +564,7 @@ class WAEventHandler(WAEventBase):
 		fmsg.setData({"status":0,"content":fmsg.content,"type":1})
 		WAXMPP.message_store.pushMessage(jid,fmsg)
 		
-		self.conn.sendMessageWithVCard(fmsg,stream);
+		self.conn.sendMessageWithVCard(fmsg);
 
 
 
@@ -553,17 +581,16 @@ class WAEventHandler(WAEventBase):
 		else:
 			preimg = QPixmap.fromImage(QImage(user_img.scaled(64, 64, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)))
 
-		preimg.save("/home/user/.cache/wazapp/temp2.png", "PNG")
-		f = open("/home/user/.cache/wazapp/temp2.png", 'r')
+		preimg.save(WAConstants.CACHE_PATH+"/temp2.png", "PNG")
+		f = open(WAConstants.CACHE_PATH+"/temp2.png", 'r')
 		stream = base64.b64encode(f.read())
 		f.close()
 
-		self._d("creating MMS for " +jid + " - file: " + image)
+		self._d("creating PICTURE MMS for " +jid + " - file: " + image)
 		fmsg = WAXMPP.message_store.createMessage(jid);
 		
 		mediaItem = WAXMPP.message_store.store.Media.create()
 		mediaItem.mediatype_id = 2
-		#mediaItem.remote_url = url
 		mediaItem.local_path = image
 		mediaItem.transfer_status = 0
 		mediaItem.preview = stream
@@ -579,15 +606,36 @@ class WAEventHandler(WAEventBase):
 		WAXMPP.message_store.pushMessage(jid,fmsg)
 		
 
-	def sendMediaVideoFile(self,jid,video):
-		self._d("creating MMS for " +jid + " - file: " + video)
+	def sendMediaVideoFile(self,jid,video,image):
+		self._d("creating VIDEO MMS for " +jid + " - file: " + video)
 		fmsg = WAXMPP.message_store.createMessage(jid);
-		
+
+		if image == "NOPREVIEW":
+			m = hashlib.md5()
+			url = QtCore.QUrl(video).toEncoded()
+			m.update(url)
+			image = WAConstants.THUMBS_PATH + "/screen/" + m.hexdigest() + ".jpeg"
+		else:
+			image = image.replace("file://","")
+
+		user_img = QImage(image)
+		if user_img.height() > user_img.width():
+			preimg = QPixmap.fromImage(QImage(user_img.scaledToWidth(64, Qt.SmoothTransformation)))
+		elif user_img.height() < user_img.width():
+			preimg = QPixmap.fromImage(QImage(user_img.scaledToHeight(64, Qt.SmoothTransformation)))
+		else:
+			preimg = QPixmap.fromImage(QImage(user_img.scaled(64, 64, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)))
+		preimg.save(WAConstants.CACHE_PATH+"/temp2.png", "PNG")
+
+		f = open(WAConstants.CACHE_PATH+"/temp2.png", 'r')
+		stream = base64.b64encode(f.read())
+		f.close()
+
 		mediaItem = WAXMPP.message_store.store.Media.create()
 		mediaItem.mediatype_id = 4
-		#mediaItem.remote_url = url
 		mediaItem.local_path = video.replace("file://","")
 		mediaItem.transfer_status = 0
+		mediaItem.preview = stream
 
 		fmsg.content = QtCore.QCoreApplication.translate("WAEventHandler", "Video")
 		fmsg.Media = mediaItem
@@ -600,6 +648,37 @@ class WAEventHandler(WAEventBase):
 		WAXMPP.message_store.pushMessage(jid,fmsg)
 
 
+	def sendMediaRecordedFile(self,jid):	
+		recfile = WAConstants.CACHE_PATH+'/temprecord.wav'
+		now = datetime.datetime.now()
+		destfile = WAConstants.AUDIO_PATH+"/REC_"+now.strftime("%Y%m%d_%H%M")+".wav"
+		shutil.copy(recfile, destfile)
+
+		# Convert to MP3 using lame
+		#destfile = WAConstants.AUDIO_PATH+"/REC_"+now.strftime("%Y%m%d_%H%M")+".mp3"
+		#pipe=subprocess.Popen(['/usr/bin/lame', recfile, destfile])
+		#pipe.wait()
+		#os.remove(recfile)
+ 
+		self._d("creating Audio Recorded MMS for " +jid)
+		fmsg = WAXMPP.message_store.createMessage(jid);
+		
+		mediaItem = WAXMPP.message_store.store.Media.create()
+		mediaItem.mediatype_id = 3
+		mediaItem.local_path = destfile
+		mediaItem.transfer_status = 0
+
+		fmsg.content = QtCore.QCoreApplication.translate("WAEventHandler", "Audio")
+		fmsg.Media = mediaItem
+
+		if fmsg.Conversation.type == "group":
+			contact = WAXMPP.message_store.store.Contact.getOrCreateContactByJid(self.conn.jid)
+			fmsg.setContact(contact);
+		
+		fmsg.setData({"status":0,"content":fmsg.content,"type":1})
+		WAXMPP.message_store.pushMessage(jid,fmsg)
+		
+
 
 	def sendMediaAudioFile(self,jid,audio):
 		self._d("creating MMS for " +jid + " - file: " + audio)
@@ -607,7 +686,6 @@ class WAEventHandler(WAEventBase):
 		
 		mediaItem = WAXMPP.message_store.store.Media.create()
 		mediaItem.mediatype_id = 3
-		#mediaItem.remote_url = url
 		mediaItem.local_path = audio.replace("file://","")
 		mediaItem.transfer_status = 0
 
@@ -632,22 +710,31 @@ class WAEventHandler(WAEventBase):
 		
 		message = message.findFirst({'id':messageId});
 		media = message.getMedia()
-
 		url = data.split(',')[0]
 		name = data.split(',')[1]
 		size = data.split(',')[2]
-
 		self._d("sending media message to " + jid + " - file: " + url)
 		self.conn.sendNewMMSMessage(message, url, name, size, media.preview, media.mediatype_id);
 
 	
+	def rotateImage(self,filepath):
+		print "ROTATING FILE: " + filepath
+		img = QImage(filepath)
+		rot = QTransform()
+		rot = rot.rotate(90)
+		img = img.transformed(rot)
+		img.save(filepath)
+		self.imageRotated.emit(filepath)
+
+
+
 	def notificationClicked(self,jid):
 		self._d("SHOW UI for "+jid)
 		self.showUI.emit(jid);
 
 	def message_received(self,fmsg,duplicate=False,mtype="",pushName=""):
 		msg_type = "duplicate" if duplicate else "new";
-
+		#self._d("NOTIFICATION: type: " + mtype + " - " + pushName + " : " + fmsg.content)
 		if fmsg.content is not None:
 			#self.new_message.emit({"data":fmsg.content,"user_id":fmsg.getContact().jid})
 			msg_contact = fmsg.getContact();
@@ -662,16 +749,19 @@ class WAEventHandler(WAEventBase):
 			if contactName is None or contactName == "":
 				contactName = pushName
 			if fmsg.type == 23:
-				newContent = QtCore.QCoreApplication.translate("WAEventHandler", "%1 has changed the group picture")
+				if contactName == self.account:
+					newContent = QtCore.QCoreApplication.translate("WAEventHandler", "%1 changed the group picture")
+				else:
+					newContent = QtCore.QCoreApplication.translate("WAEventHandler", "%1 changed the group picture")
 				newContent = newContent.replace("%1", contactName)
 			elif fmsg.type == 20:
-				newContent = QtCore.QCoreApplication.translate("WAEventHandler", "%1 has join the group")
+				newContent = QtCore.QCoreApplication.translate("WAEventHandler", "%1 joined the group")
 				newContent = newContent.replace("%1", contactName)
 			elif fmsg.type == 21:
-				newContent = QtCore.QCoreApplication.translate("WAEventHandler", "%1 has left the group")
+				newContent = QtCore.QCoreApplication.translate("WAEventHandler", "%1 left the group")
 				newContent = newContent.replace("%1", contactName)
 			elif fmsg.type == 22:
-				newContent = QtCore.QCoreApplication.translate("WAEventHandler", "%1 has changed the subject to %2")
+				newContent = QtCore.QCoreApplication.translate("WAEventHandler", "%1 changed the subject to %2")
 				if contactName == self.account:
 					contactName = QtCore.QCoreApplication.translate("WAEventHandler", "You")
 				newContent = newContent.replace("%1", contactName)
@@ -680,21 +770,21 @@ class WAEventHandler(WAEventBase):
 						
 			if fmsg.Conversation.type == "single":
 				if msg_contact.jid is not None:
-					msgPicture = "/home/user/.cache/wazapp/contacts/" + msg_contact.jid.replace("@s.whatsapp.net","") + ".png"
+					msgPicture = WAConstants.CACHE_PATH+"/contacts/" + msg_contact.jid.replace("@s.whatsapp.net","") + ".png"
 				else:
 					msgPicture = "/opt/waxmppplugin/bin/wazapp/UI/common/images/user.png"
 
-				self.notifier.newMessage(msg_contact.jid, contactName, newContent, msgPicture.encode('utf-8'),callback = self.notificationClicked);
+				self.notifier.newSingleMessage(msg_contact.jid, contactName, newContent, msgPicture.encode('utf-8'),callback = self.notificationClicked);
 
 			else:
 				conversation = fmsg.getConversation();
 				jjid = conversation.jid.replace("@g.us","")
-				if msg_contact.jid is not None and os.path.isfile("/home/user/.cache/wazapp/contacts/" + jjid + ".png"):
-					msgPicture = "/home/user/.cache/wazapp/contacts/" + jjid + ".png"
+				if msg_contact.jid is not None and os.path.isfile(WAConstants.CACHE_PATH+"/contacts/" + jjid + ".png"):
+					msgPicture = WAConstants.CACHE_PATH+"/contacts/" + jjid + ".png"
 				else:
 					msgPicture = "/opt/waxmppplugin/bin/wazapp/UI/common/images/group.png"
 
-				self.notifier.newMessage(conversation.jid, "%s - %s"%(contactName,conversation.subject.decode("utf8")), newContent, msgPicture.encode('utf-8'),callback = self.notificationClicked);
+				self.notifier.newGroupMessage(conversation.jid, "%s - %s"%(contactName,conversation.subject.decode("utf8")), newContent, msgPicture.encode('utf-8'),callback = self.notificationClicked);
 			
 
 			self._d("A {msg_type} message was received: {data}".format(msg_type=msg_type, data=fmsg.content));
@@ -706,6 +796,7 @@ class WAEventHandler(WAEventBase):
 		#	self.conn.sendGetPicture(conversation.jid,"image")
 
 		if(fmsg.wantsReceipt):
+			print "MESSAGE WANTS RECEIPT!!!"
 			self.conn.sendMessageReceived(fmsg.key.remote_jid,mtype,fmsg.key.id);
 
 	
@@ -753,7 +844,7 @@ class WAEventHandler(WAEventBase):
 		self._d("Got group created " + group_id)
 		jname = jid.replace("@g.us","")
 		img = QImage("/opt/waxmppplugin/bin/wazapp/UI/common/images/group.png")
-		img.save("/home/user/.cache/wazapp/contacts/" + jname + ".png")
+		img.save(WAConstants.CACHE_PATH+"/contacts/" + jname + ".png")
 		self.groupCreated.emit(group_id);
 
 	def onAddedParticipants(self):
@@ -775,9 +866,9 @@ class WAEventHandler(WAEventBase):
 	def onGroupInfo(self,jid,ownerJid,subject,subjectOwnerJid,subjectT,creation):
 		self._d("Got group info")
 		if jid == "ERROR":
-			self.groupInfoUpdated.emit("ERROR")
+			self.groupInfoUpdated.emit(jid,"ERROR")
 		else:
-			self.groupInfoUpdated.emit(jid+"<<->>"+str(ownerJid)+"<<->>"+subject+"<<->>"+subjectOwnerJid+"<<->>"+str(subjectT)+"<<->>"+str(creation))
+			self.groupInfoUpdated.emit(jid,jid+"<<->>"+str(ownerJid)+"<<->>"+subject+"<<->>"+subjectOwnerJid+"<<->>"+str(subjectT)+"<<->>"+str(creation))
 			WAXMPP.message_store.updateGroupInfo(jid,ownerJid,subject,subjectOwnerJid,subjectT,creation)
 		#self.conn.sendGetPicture("g.us",jid,"group")
 		
@@ -806,6 +897,8 @@ class WAEventHandler(WAEventBase):
 		self.listJids = jids
 		if len(self.listJids)>0:
 			self.conn.sendGetPicture(self.listJids[0],"image")
+		else:
+			self.getPicturesFinished.emit()
 
 	def onGetPictureDone(self, jid):
 		self.profilePictureUpdated.emit(jid);
@@ -813,6 +906,8 @@ class WAEventHandler(WAEventBase):
 			self.listJids.pop(0);
 			if len(self.listJids)>0:
 				self.conn.sendGetPicture(self.listJids[0],"image")
+			else:
+				self.getPicturesFinished.emit()
 
 	def onSetPicture(self,jid,res):
 		self._d("Getting Picture "+res +" for "+jid)
@@ -1011,6 +1106,10 @@ class StanzaReader(QThread):
 			    		
 	def handleLastOnline(self,node,jid=None):
 		firstChild = node.getChild(0);
+
+		if "error" in firstChild.toString():
+			return
+
 		ProtocolTreeNode.require(firstChild,"query");
 		seconds = firstChild.getAttributeValue("seconds");
 		status = None
@@ -1072,27 +1171,30 @@ class StanzaReader(QThread):
 			data = data[n:]
 			data = data.replace("</picture>","")
 			cjid = self.currentPictureJid.replace("@s.whatsapp.net","").replace("@g.us","")
-			text_file = open("/home/user/.cache/wazapp/contacts/" + cjid + ".jpg", "w")
+			text_file = open(WAConstants.CACHE_PATH+"/contacts/" + cjid + ".jpg", "w")
 			text_file.write(data)
 			text_file.close()
-			if os.path.isfile("/home/user/.cache/wazapp/contacts/" + cjid + ".png"):
-				os.remove("/home/user/.cache/wazapp/contacts/" + cjid + ".png")
+			if os.path.isfile(WAConstants.CACHE_PATH+"/contacts/" + cjid + ".png"):
+				os.remove(WAConstants.CACHE_PATH+"/contacts/" + cjid + ".png")
 			self.eventHandler.onGetPictureDone(self.currentPictureJid)
 
 		
 	def handleGetPictureIds(self,node,jid=None):
 		groupNode = node.getChild("list")
-		self._d("RESPUESTA PICTURE IDS")
-		self._d(groupNode.toString())
-		#1340436828
+		#self._d(groupNode.toString())
 		children = groupNode.getAllChildren("user");
 		jids = []
 		for c in children:
 			if c.getAttributeValue("id") is not None:
-				jids.append(c.getAttributeValue("jid"))
-		
-		self.eventHandler.onGetPictureIds(jids)
-				
+				contact = WAXMPP.message_store.store.Contact.getOrCreateContactByJid(c.getAttributeValue("jid"))
+				if contact.pictureid != str(c.getAttributeValue("id")):
+					jids.append(c.getAttributeValue("jid"))
+					contact.setData({"pictureid":c.getAttributeValue("id")})
+					contact.save()
+		if len(jids)>0:
+			self.eventHandler.onGetPictureIds(jids)
+		else:
+			self.eventHandler.getPicturesFinished.emit()
 
 	def handleSetPicture(self,node,jid=None):
 		picNode = node.getChild("picture")
@@ -1123,6 +1225,17 @@ class StanzaReader(QThread):
 		
 		return stamp
 	
+
+	def checkPushName(self,jid,pushName):
+
+		contact = WAXMPP.message_store.store.Contact.getOrCreateContactByJid(jid)
+		if contact.pushname != pushName:
+			self._d("Setting Push Name: "+pushName+" to "+jid)
+			contact.setData({"jid":jid,"pushname":pushName})
+			contact.save()
+			self.eventHandler.setPushName.emit(jid,pushName)
+
+
 	def parseMessage(self,messageNode):
 
 		#if "Offline Storage" in messageNode.toString():
@@ -1142,39 +1255,21 @@ class StanzaReader(QThread):
 		fromAttribute = messageNode.getAttributeValue("from");
 		author = messageNode.getAttributeValue("author");
 
+		if fromAttribute is not None and fromAttribute in self.eventHandler.blockedContacts:
+			self._d("CONTACT BLOCKED!")
+			return
+
+		if author is not None and author in self.eventHandler.blockedContacts:
+			self._d("CONTACT BLOCKED!")
+			return
+
+
 		pushName = None
 		notifNode = messageNode.getChild("notify")
 		if notifNode is not None:
 			pushName = notifNode.getAttributeValue("name");
 			pushName = pushName.decode("utf8")
-
-
-		if fromAttribute is not None and "@s.whatsapp.net" in fromAttribute and pushName is not None:
-			self._d("Setting Push Name: "+pushName+" to "+fromAttribute)
-			contact = WAXMPP.message_store.store.Contact.getOrCreateContactByJid(fromAttribute)
-			if contact.pushname != pushName:
-				contact.setData({"jid":fromAttribute,"number":fromAttribute.split('@')[0],"pushname":pushName})
-				contact.save()
-				self.eventHandler.setPushName.emit(fromAttribute,pushName)
-
-		if fromAttribute is not None and "@g.us" in fromAttribute and author is not None and pushName is not None:
-			self._d("Setting Push Name: "+pushName+" to "+author)
-			contact = WAXMPP.message_store.store.Contact.getOrCreateContactByJid(author)
-			if contact.pushname != pushName:
-				contact.setData({"jid":author,"number":author.split('@')[0],"pushname":pushName})
-				contact.save()
-				self.eventHandler.setPushName.emit(author,pushName)
 		
-		
-		if fromAttribute is not None and fromAttribute in self.eventHandler.blockedContacts:
-			self._d("CONTACT BLOCKED!")
-			return
-
-		if fromAttribute is not None and fromAttribute in self.eventHandler.blockedContacts:
-			self._d("CONTACT BLOCKED!")
-			return
-
-
 		fmsg = WAXMPP.message_store.createMessage(fromAttribute)
 		fmsg.wantsReceipt = False
 		
@@ -1208,12 +1303,17 @@ class StanzaReader(QThread):
 				message.status = 7
 				self.eventHandler.message_error(message,errorCode);
 		
-		
-		
 		elif typeAttribute == "notification":
 			print "NOTIFICATION!"
 			#return
-			
+
+			if fromAttribute is not None and "@s.whatsapp.net" in fromAttribute and pushName is not None:
+				self.checkPushName(fromAttribute,pushName)
+
+			if fromAttribute is not None and "@g.us" in fromAttribute and author is not None and pushName is not None:
+				self.checkPushName(author,pushName)
+
+
 			if fromAttribute is not None and msg_id is not None:
 				key = Key(fromAttribute,True,msg_id);
 				ret = WAXMPP.message_store.get(key);
@@ -1234,13 +1334,13 @@ class StanzaReader(QThread):
 				self.connection.sendMessageReceived(fromAttribute,"notification",msg_id);
 
 			if pictureUpdated == "picture":
-				print "GROUP PICTURE UPDATED!"
+				print "PICTURE UPDATED!"
 				bodyNode = messageNode.getChild("notification").getChild("set");
-				author = bodyNode.getAttributeValue("author");
+				author = bodyNode.getAttributeValue("author") if conversation.isGroup() else bodyNode.getAttributeValue("jid")
 				fmsg.Media = None
 				fmsg.setData({"status":0,"key":key.toString(),"content":author,"type":23});
 				self.connection.sendGetPicture(fromAttribute, "image")
-				cont = True
+				cont = "@g.us" in fromAttribute
 
 			else:
 				addSubject = None
@@ -1289,7 +1389,7 @@ class StanzaReader(QThread):
 
 			if self.eventHandler is not None and cont is True:
 				signal = True
-				#contact = WAXMPP.message_store.store.Contact.getOrCreateContactByJid(author)
+				contact = WAXMPP.message_store.store.Contact.getOrCreateContactByJid(author)
 				fmsg.contact_id = contact.id
 				fmsg.contact = contact
 				
@@ -1327,6 +1427,12 @@ class StanzaReader(QThread):
 			bodyNode = messageNode.getChild("body");
 			newSubject = None if bodyNode is None else bodyNode.data;
 
+			if fromAttribute is not None and "@s.whatsapp.net" in fromAttribute and pushName is not None:
+				self.checkPushName(fromAttribute,pushName)
+
+			if fromAttribute is not None and "@g.us" in fromAttribute and author is not None and pushName is not None:
+				self.checkPushName(author,pushName)
+
 			if newSubject is not None and self.eventHandler is not None:
 				self.eventHandler.groupSubjectUpdated(fromAttribute,author,newSubject,int(attribute_t));
 			
@@ -1359,7 +1465,7 @@ class StanzaReader(QThread):
 						duplicate = True;
 				
 					if signal:
-						self.eventHandler.message_received(fmsg,duplicate);
+						self.eventHandler.message_received(fmsg,duplicate,"subject",pushName);
 						
 
 		elif typeAttribute == "chat":
@@ -1367,7 +1473,15 @@ class StanzaReader(QThread):
 			wantsReceipt = False;
 			messageChildren = [] if messageNode.children is None else messageNode.children
 
+			if fromAttribute is not None and "@s.whatsapp.net" in fromAttribute and pushName is not None:
+				self.checkPushName(fromAttribute,pushName)
+
+			if fromAttribute is not None and "@g.us" in fromAttribute and author is not None and pushName is not None:
+				self.checkPushName(author,pushName)
+
 			for childNode in messageChildren:
+				if ProtocolTreeNode.tagEquals(childNode,"request"):
+					fmsg.wantsReceipt = True;
 				if ProtocolTreeNode.tagEquals(childNode,"composing"):
 						if self.eventHandler is not None:
 							self.eventHandler.typing_received(fromAttribute);
@@ -1401,6 +1515,7 @@ class StanzaReader(QThread):
 						msgdata = QtCore.QCoreApplication.translate("StanzaReader", "Audio")
 					elif mediaType == "video":
 						mediaItem.mediatype_id = WAConstants.MEDIA_TYPE_VIDEO
+						mediaItem.preview = messageNode.getChild("media").data
 						msgdata = QtCore.QCoreApplication.translate("StanzaReader", "Video")
 					elif mediaType == "location":
 						mlatitude = messageNode.getChild("media").getAttributeValue("latitude")
@@ -1420,7 +1535,7 @@ class StanzaReader(QThread):
 						msgdata = messageNode.getChild("media").getChild("vcard").toString()
 						msgname = messageNode.getChild("media").getChild("vcard").getAttributeValue("name")
 						if msgdata is not None:
-							text_file = open("/home/user/MyDocs/Wazapp/media/contacts/" + msgname + ".vcf", "w")
+							text_file = open(WAConstants.VCARD_PATH + "/" + msgname + ".vcf", "w")
 							n = msgdata.find(">") +1
 							msgdata = msgdata[n:]
 							text_file.write(msgdata.replace("</vcard>",""))
@@ -1429,7 +1544,7 @@ class StanzaReader(QThread):
 							mediaItem.mediatype_id = 6
 							mediaItem.transfer_status = 2
 							msgdata = msgname
-							mediaItem.setData({"local_path": "/home/user/MyDocs/Wazapp/media/contacts/" + msgname + ".vcf"})
+							mediaItem.setData({"local_path": WAConstants.VCARD_PATH + "/" + msgname + ".vcf"})
 							photo = messageNode.getChild("media").getChild("vcard").toString()
 
 							if "PHOTO;BASE64" in photo:
@@ -1470,15 +1585,29 @@ class StanzaReader(QThread):
 				
 				elif ProtocolTreeNode.tagEquals(childNode,"body") and msg_id is not None:
 					msgdata = childNode.data;
-					
-					#mediaItem = WAXMPP.message_store.store.Media.create()
-					#mediaItem.mediatype_id = WAConstants.MEDIA_TYPE_TEXT
-					#fmsg.Media = mediaItem
 					fmsg.Media = None
 					
 					key = Key(fromAttribute,False,msg_id);
 					fmsg.setData({"status":0,"key":key.toString(),"content":msgdata,"type":WAXMPP.message_store.store.Message.TYPE_RECEIVED});
 					
+				elif ProtocolTreeNode.tagEquals(childNode,"received") and fromAttribute is not None and msg_id is not None:
+
+					if fromAttribute == "s.us":
+						print "STATUS CHANGED NOTIFICATION!!!"
+						self.eventHandler.statusChanged.emit()
+						return;
+
+					print "NEW MESSAGE RECEIVED NOTIFICATION!!!"
+					self.connection.sendDeliveredReceiptAck(fromAttribute,msg_id); 
+					key = Key(fromAttribute,True,msg_id);
+					message = WAXMPP.message_store.get(key)
+					if message is not None:
+						WAXMPP.message_store.updateStatus(message,WAXMPP.message_store.store.Message.STATUS_DELIVERED)
+						
+						if self.eventHandler is not None:
+							self.eventHandler.message_status_update(message);
+					return #I didn't test if return is needed
+
 				
 				elif not (ProtocolTreeNode.tagEquals(childNode,"active")):
 					if ProtocolTreeNode.tagEquals(childNode,"request"):
@@ -1736,8 +1865,8 @@ class WAXMPP():
 		self.conn = conn = MySocketConnection();
 		#conn.connect((HOST, PORT));
 
-		self.inn = BinTreeNodeReader(conn,WALogin.dictionary+WALogin.dictionaryIn);
-		self.out = BinTreeNodeWriter(conn,WALogin.dictionary);
+		self.inn = BinTreeNodeReader(conn,WALogin.dictYappari);
+		self.out = BinTreeNodeWriter(conn,WALogin.dictYappari);
 		
 		
 		self.login = WALogin(conn,self.inn,self.out,S40MD5Digest());
@@ -1798,9 +1927,14 @@ class WAXMPP():
 		for m in messages:
 			media = m.getMedia()
 			if media is not None:
-				print "media message. don't send"
-				#if media.transfer_status == 2:
-					#self.sendMessageWithBody(m);
+				if media.transfer_status == 2:
+					if media.mediatype_id == 6:
+						self.sendMessageWithVCard(m)
+					elif media.mediatype_id == 5:
+						self.sendMessageWithLocation(m)
+					else:
+						media.transfer_status == 1
+						media.save()
 			else:
 				self.sendMessageWithBody(m);
 		self._d("Resending old messages done")
@@ -1943,12 +2077,24 @@ class WAXMPP():
 		self.msg_id+=1;
 
 
-	def sendMessageWithLocation(self,fmsg,latitude,longitude,preview):
+	def sendMessageWithLocation(self,fmsg):
+		media = fmsg.getMedia()
+		latitude = media.local_path.split(',')[0]
+		longitude = media.local_path.split(',')[1]
+		preview = media.preview
+		self._d("sending location (" + latitude + ":" + longitude + ")")
+
 		bodyNode = ProtocolTreeNode("media", {"xmlns":"urn:xmpp:whatsapp:mms","type":"location","latitude":latitude,"longitude":longitude},None,preview)
 		self.out.write(self.getMessageNode(fmsg,bodyNode));
 		self.msg_id+=1;
 
-	def sendMessageWithVCard(self,fmsg,stream):
+	def sendMessageWithVCard(self,fmsg):
+		contactName = fmsg.content
+		media = fmsg.getMedia()
+		preview = media.preview
+		f = open(WAConstants.VCARD_PATH + "/" + contactName+".vcf", 'r')
+		stream = f.read()
+		f.close()
 		cardNode = ProtocolTreeNode("vcard",{"name":fmsg.content},None,stream);
 		bodyNode = ProtocolTreeNode("media", {"xmlns":"urn:xmpp:whatsapp:mms","type":"vcard"},[cardNode])
 		self.out.write(self.getMessageNode(fmsg,bodyNode));
@@ -2124,19 +2270,19 @@ class WAXMPP():
 		else:
 			preimg = user_img.scaled(480, 480, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
 
-		preimg.save("/home/user/.cache/wazapp/temp.jpg", "JPG")
+		preimg.save(WAConstants.CACHE_PATH+"/temp.jpg", "JPG")
 
 		preview = preimg.scaled(51, 51, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
-		preview.save("/home/user/.cache/wazapp/temp2.jpg", "JPG")
+		preview.save(WAConstants.CACHE_PATH+"/temp2.jpg", "JPG")
 
 		self.stanzaReader.currentPictureJid = jid;
 
-		f = open("/home/user/.cache/wazapp/temp.jpg", 'r')
+		f = open(WAConstants.CACHE_PATH+"/temp.jpg", 'r')
 		stream = f.read()
 		stream = bytearray(stream)
 		f.close()
 
-		f = open("/home/user/.cache/wazapp/temp2.jpg", 'r')
+		f = open(WAConstants.CACHE_PATH+"/temp2.jpg", 'r')
 		stream2 = f.read()
 		stream2 = bytearray(stream2)
 		f.close()
@@ -2150,6 +2296,14 @@ class WAXMPP():
 		
 		self.out.write(iqNode)
 
+	def sendChangeStatus(self,status):
+		self._d("updating status to: %s"%(status))
+
+		fmsg = WAXMPP.message_store.createMessage(self.eventHandler.account);
+		key = Key("s.us",True,"00000000");
+		fmsg.setData({"key":key.toString()});
+		bodyNode = ProtocolTreeNode("body",None,None,status.encode('utf-8'));
+		self.out.write(self.getMessageNode(fmsg,bodyNode));
 
 	
 	def getMessageNode(self,fmsg,child):

@@ -21,6 +21,7 @@
 ****************************************************************************/
 import QtQuick 1.1
 import com.nokia.meego 1.0
+import com.nokia.extras 1.0
 import QtMobility.gallery 1.1
 
 import "Chats"
@@ -32,27 +33,32 @@ import "Updater"
 import "Conversations"
 import "Profile"
 import "Groups"
+import "Misc"
 import "common/js/settings.js" as MySettings
 
 //import com.nokia.extras 1.0
 
 WAStackWindow {
     id: appWindow
-    initialPage: mainPage  
-    showStatusBar: !(screen.currentOrientation == Screen.Landscape && activeConvJId!="")
-	showToolBar: !dialogOpened
+    initialPage: mainPage //splashPage//mainPage
+    showStatusBar: initializationDone && !(screen.currentOrientation == Screen.Landscape && activeConvJId!="")
+    showToolBar: initializationDone && !dialogOpened
 
     toolBarPlatformStyle:ToolBarStyle{
         inverted: theme.inverted
     }
 
     Component.onCompleted: {
+        pageStack.push(splashPage,{},true)
+
 		MySettings.initialize()
 		theme.inverted = MySettings.getSetting("ThemeColor", "White")=="Black"
 		mainBubbleColor = parseInt(MySettings.getSetting("BubbleColor", "1"))
 		sendWithEnterKey = MySettings.getSetting("SendWithEnterKey", "Yes")=="Yes"
-		resizeImages = MySettings.getSetting("ResizeImages", "No")=="Yes"
+		resizeImages = MySettings.getSetting("ResizeImages", "Yes")=="Yes"
 		orientation = parseInt(MySettings.getSetting("Orientation", "0"))
+		vibraForPersonal = MySettings.getSetting("PersonalVibrate", "Yes")
+		vibraForGroup = MySettings.getSetting("GroupVibrate", "Yes")
 	}
 
     property string waversiontype:waversion.split('.').length == 4?'developer':'beta'
@@ -68,6 +74,9 @@ WAStackWindow {
 	property string selectedGroupPicture
 	property string bigProfileImage
     property int orientation
+	property string vibraForPersonal
+	property string vibraForGroup
+    property bool initializationDone: false
 
     /****** Signal and Slot definitions *******/
 
@@ -94,9 +103,7 @@ WAStackWindow {
 	signal sendSMS(string num)
 	signal makeCall(string num)
 	signal getGroupInfo(string jid);
-	signal groupInfoUpdated();
 	signal createGroupChat(string subject);
-	signal groupCreated();
 	signal addParticipants(string gjid, string participants);
 	signal addedParticipants();
 	signal removeParticipants(string gjid, string participants);
@@ -112,32 +119,91 @@ WAStackWindow {
 	signal setPicture(string jid, string file);
 	signal sendMediaMessage(string jid, string data, string image, string preview);
 	signal sendMediaImageFile(string jid, string file);
-	signal sendMediaVideoFile(string jid, string file);
+	signal sendMediaVideoFile(string jid, string file, string preview);
 	signal sendMediaAudioFile(string jid, string file);
+	signal sendMediaRecordedFile(string jid);
 	signal sendLocation(string jid, string latitude, string longitude, string rotate);
     signal sendVCard(string jid, string contact);
 	signal removeSingleContact(string jid);
-	signal updatePushName(string ujid, string npush);
+	signal updateContactName(string ujid, string npush);
+	signal rotateImage(string file);
+	signal imageRotated(string filepath);
+	signal getPicturesFinished();
+	signal removeFile(string file);
+	signal startRecording();
+	signal stopRecording();
+	signal playRecording();
+	signal deleteRecording();
+    signal exportConversation(string jid);
 
+    signal breathe()
+
+
+	signal openContactPicker(string multi, string title); //TESTING...
 	signal setBlockedContacts(string contacts);
 	signal setResizeImages(bool resize);
+	signal openCamera(string jid, string mode);
+    signal setPersonalRingtone(string value);
+    signal setPersonalVibrate(bool value);
+	signal setGroupRingtone(string value);
+    signal setGroupVibrate(bool value);
+	signal vibrateNow();
 
-	signal mediaTransferProgressUpdated(int mprogress, string mjid, int mid)
-	signal mediaTransferSuccess(string mjid, int mid, variant mobject)
-	signal mediaTransferError(string mjid, int mid, variant mobject)
+
+	signal openPreviewPicture(string ujid, string picturefile, int rotation, string previewimg, string capturemode)
+	function capturedPreviewPicture(ujid, picturefile, rotation, previewimg, capturemode) {
+		openPreviewPicture(ujid, picturefile, rotation, previewimg, capturemode)
+	}
+
+	signal mediaTransferProgressUpdated(int mprogress, int mid)
+	signal mediaTransferSuccess(int mid, string filepath)
+	signal mediaTransferError(int mid)
 
 	signal selectedMedia(string url);
 	property string currentJid: ""
 
-	property string groupId
-	function onGroupCreated(group_id) {
-		groupId = group_id + "@g.us"
-		groupCreated()
+	signal populatePhoneContacts()
+
+	signal thumbnailUpdated()
+	function onThumbnailUpdated() {
+		thumbnailUpdated()
 	}
 
-	function onAddedParticipants() {
-		addedParticipants()
+	signal getImageFiles();
+	ListModel {
+		id: galleryModel
 	}
+	function pushImageFiles(files) {
+		for (var i=0; i<files.length; ++i) {
+			galleryModel.append(files[i])
+		}
+	}
+
+	signal getVideoFiles();
+	ListModel {
+		id: galleryVideoModel
+	}
+	function pushVideoFiles(files) {
+		for (var i=0; i<files.length; ++i) {
+			galleryVideoModel.append(files[i])
+		}
+	}
+
+	signal getRingtones();
+	signal ringtonesUpdated();
+	ListModel {
+		id: ringtoneModel
+	}
+	function pushRingtones(files) {
+		ringtoneModel.clear()
+		ringtoneModel.append({ name: QT_TR_NOOP("(no sound)"), value: "No sound.wav"})
+		for (var i=0; i<files.length; ++i) {
+			ringtoneModel.append(files[i])
+		}
+		ringtonesUpdated();
+	}
+
+	signal groupCreated(string group_id)
 
 	function onRemovedParticipants() {
 		removedParticipants()
@@ -154,11 +220,7 @@ WAStackWindow {
 		groupEnded()
 	}
 
-	property string groupInfoData
-	function onGroupInfoUpdated(data) {
-		groupInfoData = data
-		groupInfoUpdated()
-	}
+	signal groupInfoUpdated(string gjid, string gdata)
 
 	function onGroupSubjectChanged() {
 		getGroupInfo(profileUser)
@@ -230,6 +292,20 @@ WAStackWindow {
         aboutDialog.open();
     }
 
+    function setSplashOperation(op) {
+        splashPage.setCurrentOperation(op)
+    }
+
+    function onInitDone(){
+        initializationDone = true
+        pageStack.pop(mainPage,true)
+        //pageStack.replace(mainPage)
+    }
+
+
+    function onConversationExported(jid, path){
+        consoleDebug(jid+":::"+path)
+    }
 
 	function onContactsChanged() {
 
@@ -243,9 +319,9 @@ WAStackWindow {
 	}	
 
     function onSyncClicked(){
-        tabGroups.currentTab=waContacts;
+        //tabGroups.currentTab=waContacts;
         appWindow.pageStack.push(loadingPage);
-        refreshContacts("ALL");
+        refreshContacts("SYNC","ALL");
     }
 
 	signal refreshSuccessed
@@ -298,7 +374,7 @@ WAStackWindow {
 	}
 	
 	
-	property string myAccount
+	property string myAccount: ""
 	function setMyAccount(account) {
 		myAccount = account
 
@@ -307,6 +383,12 @@ WAStackWindow {
 
 		resizeImages = MySettings.getSetting("ResizeImages", "Yes")=="Yes" ? true : false
 		setResizeImages(resizeImages)
+
+		setPersonalRingtone(MySettings.getSetting("PersonalRingtone", "Message 1.mp3"));
+        setPersonalVibrate(MySettings.getSetting("PersonalVibrate", "Yes")=="Yes"); //changed to be passed as boolean
+		setGroupRingtone(MySettings.getSetting("GroupRingtone", "/usr/share/sounds/ring-tones/Message 1.mp3"));
+        setGroupVibrate(MySettings.getSetting("GroupVibrate", "Yes")=="Yes");
+
 	}
 
 	function getPictures() {
@@ -330,7 +412,7 @@ WAStackWindow {
 	function unblockContact(jid) {
 		var newc = blockedContacts
 		newc = newc.replace(jid,"")
-		newc = newc.replace(",,",",")
+		newc = newc.replace(/,,/g,",")
 		blockedContacts = newc
 		MySettings.setSetting("BlockedContacts", blockedContacts)
 		setBlockedContacts(blockedContacts)
@@ -342,29 +424,122 @@ WAStackWindow {
 			var add = true
 			for(var j =0; j<contactsModel.count; j++) {
 				if (contactsModel.get(j).jid==contacts[i].jid) {
+					contactsModel.get(j).name = contacts[i].name
 					add = false
 					break
 				}
 			}
 			if (add) {
+				//contacts[i].newContact = true;
 				contactsModel.insert(i, contacts[i]);
+				currentContacts = currentContacts + "," + contacts[i].jid
+				newContacts = newContacts +1
+				//contactsAdded.title = newContacts
 			}
 		}
     }
 
-	
-    function pushContacts(contacts){
-        waContacts.pushContacts(contacts)
+
+
+    function getContacts(){
+
+        return contactsModel;
     }
 
+    function getGroups(){
+
+        consoleDebug("Getting groups")
+        var convs = getConversations();
+        consoleDebug(convs)
+        var modelData = Qt.createQmlObject("import QtQuick 1.0; ListModel{}", appWindow, "groupsModel")
+
+        for(var i=0; i < convs.count; i++) {
+
+            var conv = convs.get(i).conversation;
+            consoleDebug(conv);
+            consoleDebug(conv.isGroup());
+
+            if(conv.isGroup()) {
+
+                consoleDebug("Appending")
+
+                modelData.append({name:conv.title, picture:conv.picture, jid:conv.jid})
+                consoleDebug("Pass")
+
+            }
+
+        }
+
+        consoleDebug("Returning")
+        consoleDebug(modelData.length);
+
+        return modelData;
+
+    }
+
+
+    function getConversations(){
+
+        return conversationsModel;
+    }
+
+
+
+	property string currentContacts: ""
+	property int newContacts: 0
+
+    function pushContacts(mode,contacts){
+        waContacts.pushContacts(contacts)
+		var newc = 0
+		if (mode=="SYNC") {
+			newContacts = 0
+			for(var j =0; j<contactsModel.count; j++) {
+				if (currentContacts.indexOf(contactsModel.get(j).jid)==-1 ) {
+					currentContacts = currentContacts + "," + contactsModel.get(j).jid
+					//contactsModel.get(j).newContact = true
+					newContacts = newContacts +1
+				}
+			}
+			//contactsAdded.title = newContacts
+		} else {
+			for(var j =0; j<contactsModel.count; j++) {
+				currentContacts = currentContacts + "," + contactsModel.get(j).jid
+			}
+		}
+    }
+
+
+    signal phoneContactsReady()
     function pushPhoneContacts(contacts){
         phoneContactsModel.clear()
 		consoleDebug("APPENDING PHONE CONTACTS:" + contacts.length)
+
+        var tmpModelData = new Array
 		for (var i=0; i<contacts.length; i++) {
-			phoneContactsModel.insert(phoneContactsModel.count,{"name":contacts[i][0], "picture":contacts[i][1], 
-										"numbers":contacts[i][2].toString(), "selected":false})
+           // phoneContactsModel.insert(phoneContactsModel.count,{"name":contacts[i][0] || contacts[i][2].toString(), "picture":contacts[i][1],
+            //							"numbers":contacts[i][2].toString(), "selected":false})
+
+            tmpModelData.push({"name":contacts[i][0] || contacts[i][2].toString(), "picture":contacts[i][1],
+                                                            "numbers":contacts[i][2].toString(), "selected":false})
 		}
+
+        breathe()
+
+        modelworker.sendMessage({"model":phoneContactsModel,"data":tmpModelData})
+
     }
+
+    WorkerScript{
+        id:modelworker
+        source: "common/js/modelworker.js"
+        onMessage: {
+            console.log("EMITING READY")
+            phoneContactsReady()
+            console.log("EMIT")
+        }
+    }
+
+
 
     function onContactsSyncStatusChanged(s) {
         switch(s){
@@ -392,6 +567,12 @@ WAStackWindow {
     function conversationReady(conv){
         //This should be called if and only if conversation start point is backend
         consoleDebug("Got a conv in conversationReady slot: " + conv.jid);
+
+
+        if(!initializationDone)
+            splashPage.setSubOperation(conv.jid)
+
+        breathe()
         var conversation = waChats.getOrCreateConversation(conv.jid);
 
         var contact;
@@ -418,12 +599,12 @@ WAStackWindow {
 
         }
 
-
-
-
     }
 
-    function messagesReady(messages){
+	signal reorderConversation(string cjid)
+	signal updateChatItemList()
+
+    function messagesReady(messages,reorder){
         consoleDebug("GOT MESSAGES SIGNAL");
         var conversation = waChats.getConversation(messages.jid);
         consoleDebug("proceed to check validity of conv")
@@ -438,7 +619,7 @@ WAStackWindow {
         consoleDebug("Adding messages to conv")
         for (var i =0; i< messages.data.length; i++)
         {
-            //consoleDebug("adding a message");
+            //consoleDebug("adding message: " + messages.data[i].content );
             conversation.addMessage(messages.data[i]);
         }
 
@@ -446,7 +627,21 @@ WAStackWindow {
             //to reset unreadCount in frontend and inform backend about
             conversation.open();
         }
+
+		if (reorder) reorderConversation(messages.jid)
+
+		onPaused(messages.jid)
+
     }
+
+	function checkUnreadMessages() {
+		var num = 0
+        for(var i =0; i<conversationsModel.count; i++) {
+			var nconv = conversationsModel.get(i).conversation.unreadCount
+			num = num + (nconv? nconv : 0)
+		}
+		unreadChatMessages.title = num.toString() 
+	}
 
     function onLastSeenUpdated(jid,seconds){
 
@@ -494,24 +689,28 @@ WAStackWindow {
         }
     }*/
 
-    function onMessageSent(message_id,jid){
+    signal messageSent(int mid, string ujid)
+    function onMessageSent(message_id,jid) {
         var conversation = waChats.getConversation(jid);
 
         if(conversation){
             conversation.messageSent(message_id);
         }
+		messageSent(message_id,jid)
     }
 
-    function onMessageDelivered(message_id,jid){
+    signal messageDelivered(int mid, string ujid)
+    function onMessageDelivered(message_id,jid) {
         var conversation = waChats.getConversation(jid);
 
         if(conversation){
             conversation.messageDelivered(message_id);
         }
+		messageDelivered(message_id,jid)
     }
 
         /**** Media ****/
-    function onMediaTransferSuccess(jid,message_id,mediaObject){
+   /* function onMediaTransferSuccess(jid,message_id,mediaObject){
         //consoleDebug("Caught media transfer success in main")
         //var conversation = waChats.getConversation(jid);
 
@@ -533,11 +732,16 @@ WAStackWindow {
 
         //if(conversation)
             mediaTransferProgressUpdated(progress,jid,message_id);
-    }
+    }*/
         /************/
 
 
     /*****************************************/
+
+    WASplash{
+        id:splashPage
+    }
+
 
     WAUpdate{
         id:updatePage
@@ -553,6 +757,10 @@ WAStackWindow {
 
 	SendVideo {
 		id:sendVideo
+	}
+
+	SendAudioRec {
+		id:sendAudioRec
 	}
 
 	SendAudio {
@@ -580,6 +788,10 @@ WAStackWindow {
     }
 
     ListModel{
+		id:conversationsModel
+	}
+
+    ListModel{
         id:contactsModel
     }
 
@@ -587,27 +799,11 @@ WAStackWindow {
         id:phoneContactsModel
     }
 
-	property variant selectedContacts: ""
+	property string selectedContacts: ""
 	ListModel {
 		id: participantsModel
 	}
 
-
-	DocumentGalleryModel {
-		id: galleryModel
-		rootType: DocumentGallery.Image
-		properties: [ "url", "fileName" ]
-		sortProperties: [ "-dateTaken" ] 
-		autoUpdate: true
-	}
-
-	DocumentGalleryModel {
-		id: galleryVideoModel
-		rootType: DocumentGallery.Video
-		properties: [ "url", "fileName" ]
-		sortProperties: [ "-lastModified" ] 
-		autoUpdate: true
-	}
 
 	DocumentGalleryModel {
 		id: galleryArtistModel
@@ -647,13 +843,20 @@ WAStackWindow {
             Chats{
                 id:waChats
                 height: parent.height
-                onDeleteConversation: appWindow.deleteConversation(jid);
+                onDeleteConversation: appWindow.deleteConversation(jid)
             }
 
             Contacts {
                 id: waContacts
                 height: parent.height
             }
+        }
+
+        InfoBanner {
+            id:osd_notify
+            topMargin: 10
+           // iconSource: "system_banner_thumbnail.png"
+            timerEnabled: true
         }
 
         ToolBarLayout {
@@ -671,16 +874,29 @@ WAStackWindow {
                 TabButton {
 					id: chatsTabButton
                     platformStyle: TabButtonStyle{inverted:theme.inverted}
-                    text: qsTr("Chats")
-                    //iconSource: "../images/icon-m-toolbar-home.png"
+                    //text: qsTr("Chats")
+                    iconSource: "image://theme/icon-m-toolbar-new-chat" + (theme.inverted ? "-white" : "") 
                     tab: waChats
+					CountBubble {
+						id: unreadChatMessages
+						anchors.right: parent.right
+						anchors.rightMargin: 16
+						y: -8 // Yes, I like it this way!
+					}
                 }
                 TabButton {
 					id: contactsTabButton
                     platformStyle: TabButtonStyle{inverted: theme.inverted}
-                    text: qsTr("Contacts")
-                    // iconSource: "../images/icon-m-toolbar-list.png"
+                    //text: qsTr("Contacts")
+                    iconSource: "common/images/book" + (theme.inverted ? "-white" : "") + ".png";
                     tab: waContacts
+					CountBubble {
+						id: contactsAdded
+						anchors.right: parent.right
+						anchors.rightMargin: 16
+						y: -8 // Yes, I like it this way!
+						title: newContacts
+					}
                 }
             }
 

@@ -27,6 +27,7 @@ from accountsmanager import AccountsManager;
 import dbus
 from utilities import Utilities
 from wadebug import WADebug
+from constants import WAConstants
 
 class WAManager():
 
@@ -56,6 +57,37 @@ class WAManager():
 	def quit(self):
 		self._d("Quitting")
 		self.app.exit();
+		
+		
+	def createDirs(self):
+		
+		dirs = [
+			WAConstants.STORE_PATH,
+			WAConstants.APP_PATH,
+			WAConstants.MEDIA_PATH,
+			WAConstants.AUDIO_PATH,
+			WAConstants.IMAGE_PATH,
+			WAConstants.VIDEO_PATH,
+			WAConstants.VCARD_PATH,
+
+			WAConstants.CACHE_PATH,
+			WAConstants.CACHE_PROFILE,
+			WAConstants.CACHE_CONTACTS,
+			WAConstants.CACHE_CONTACTS,
+			WAConstants.CACHE_CONV,
+			
+			WAConstants.THUMBS_PATH
+			]
+		
+		for d in dirs:
+			self.createDir(d)
+		
+		
+	def createDir(self, d):
+		if not os.path.exists(d):
+			os.makedirs(d)
+		
+	
 	def proceed(self):
 		account = AccountsManager.getCurrentAccount();
 		self._d(account)
@@ -88,12 +120,25 @@ class WAManager():
 		self.app.focusChanged.connect(gui.focusChanged)
 		gui.quit.connect(self.quit);
 
-		gui.populatePhoneContacts();
+		#gui.populatePhoneContacts();
+		
+		
+		print "SHOW FULL SCREEN"
+		gui.showFullScreen();
+		
+		gui.onProcessEventsRequested()
+		
+		self.createDirs()
+		
 		gui.populateContacts("ALL");
 		
 		gui.populateConversations();
-		print "SHOW FULL SCREEN"
-		gui.showFullScreen();
+		
+		gui.populatePhoneContacts()
+		
+		gui.initializationDone = True
+		gui.initialized.emit()
+
 		
 		print "INIT CONNECTION"
 		gui.initConnection();

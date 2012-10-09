@@ -32,11 +32,11 @@ import os, mimetypes, socket, hashlib, ssl, urllib
 from time import sleep
 
 class WAMediaHandler(QObject):
-	progressUpdated = QtCore.Signal(int,str,int) #%,jid,message.id
-	error = QtCore.Signal(str,int)
-	success = QtCore.Signal(str,int,str,str)
+	progressUpdated = QtCore.Signal(int,int) #%,jid,message.id
+	error = QtCore.Signal(str,int,int)
+	success = QtCore.Signal(str,int,str,str,int)
 	
-	def __init__(self,jid,message_id,url,mediaType_id,account,resize=False):
+	def __init__(self,jid,message_id,url,mediaType_id,mediaId,account,resize=False):
 		
 		WADebug.attach(self);
 		path = self.getSavePath(mediaType_id);
@@ -49,11 +49,12 @@ class WAMediaHandler(QObject):
 		if not os.path.exists(path):
 			os.makedirs(path)
 		
-		self.httpHandler = WAHTTPHandler(jid,account,resize,url,path+"/"+filename)
+		self.httpHandler = WAHTTPHandler(jid,account,mediaId,resize,url,path+"/"+filename)
 		self.httpHandler.progressUpdated.connect(self.onProgressUpdated)
 		self.httpHandler.success.connect(self.onSuccess)
 		self.httpHandler.error.connect(self.onError)
 		
+		self.mediaId = mediaId
 		self.message_id = message_id
 		self.jid = jid
 
@@ -61,13 +62,13 @@ class WAMediaHandler(QObject):
 	
 	
 	def onError(self):
-		self.error.emit(self.jid,self.message_id)
+		self.error.emit(self.jid,self.message_id,self.mediaId)
 	
 	def onSuccess(self, data, action):
-		self.success.emit(self.jid,self.message_id,data,action)	
+		self.success.emit(self.jid,self.message_id,data,action,self.mediaId)	
 	
 	def onProgressUpdated(self,progress):
-		self.progressUpdated.emit(progress,self.jid,self.message_id);
+		self.progressUpdated.emit(progress,self.mediaId);
 	
 	def pull(self):
 		self.httpHandler.action = "pull"
@@ -122,13 +123,14 @@ class WAHTTPHandler(QThread):
 	success = QtCore.Signal(str,str);
 	progressUpdated = QtCore.Signal(int)
 	
-	def __init__(self,jid,account,resize,url,savePath,action="pull"):
+	def __init__(self,jid,account,mediaId,resize,url,savePath,action="pull"):
 		self.url = url
 		self.savePath = savePath
 		self.jid = jid
 		self.account = account
 		self.action = "push" if action =="push" else "pull"
 		self.resizeImages = resize
+		self.mediaId = mediaId
 		super(WAHTTPHandler,self).__init__();
 		
 		
@@ -153,7 +155,7 @@ class WAHTTPHandler(QThread):
 		filetype = mimetypes.guess_type(filename)[0]
 		filesize = os.path.getsize(image)
 
-		if self.resizeImages is True and "image" in filetype:
+		if self.resizeImages is True and "image" in filetype and not "image/gif" in filetype:
 			user_img = QImage(image)
 			preimg = user_img
 			if user_img.height() > user_img.width() and user_img.width() > 600:
@@ -162,8 +164,8 @@ class WAHTTPHandler(QThread):
 				preimg = user_img.scaledToHeight(800, Qt.SmoothTransformation)
 			elif user_img.height() == user_img.width() and user_img.height() > 600:
 				preimg = user_img.scaled(600, 600, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
-			preimg.save("/home/user/.cache/wazapp/" + os.path.basename(image))
-			image = "/home/user/.cache/wazapp/" + os.path.basename(image)
+			preimg.save(WAConstants.CACHE_PATH+"/" + os.path.basename(image))
+			image = WAConstants.CACHE_PATH+"/" + os.path.basename(image)
 
 			filename = os.path.basename(image)
 			filetype = mimetypes.guess_type(filename)[0]
@@ -233,7 +235,7 @@ class WAHTTPHandler(QThread):
 		ssl_sock.write(str(fBAOS))
 
 		if self.resizeImages is True and "image" in filetype:
-			os.remove("/home/user/.cache/wazapp/" + os.path.basename(image))
+			os.remove(WAConstants.CACHE_PATH+"/" + os.path.basename(image))
 
 		sleep(1)
 		print "Done!"

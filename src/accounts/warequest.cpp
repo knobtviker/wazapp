@@ -22,11 +22,13 @@
 #include "warequest.h"
 #include <QDebug>
 
-const QString WARequest::userAgent = "WhatsApp/2.3.35 S40Version/04.60 Device/nokiac3-00";
+//const QString WARequest::userAgent = "WhatsApp/2.6.61 S60Version/5.2 Device/C7-00";
+//const QString WARequest::userAgent = "WhatsApp/2.8.13 S60Version/5.3 Device/C7-00";
+const QString WARequest::userAgent = "WhatsApp/2.8.2 WP7/7.10.8773.98 Device/NOKIA-Lumia_800-H112.1402.2.3";
 
 WARequest::WARequest()
 {
-    manager =  new QNetworkAccessManager(this);
+    manager = new QNetworkAccessManager(this);
     connect(manager,SIGNAL(finished(QNetworkReply*)),this,SLOT(replyFinished(QNetworkReply*)));
     qDebug()<<"CONNECTED SIGNAL";
 
@@ -106,23 +108,24 @@ void WARequest::sendRequest(QString url)
     qDebug()<< "SENDING";
 
     QNetworkRequest request;
-    request.setUrl(QUrl(url));
+    request.setUrl(QUrl(url+"?"+encodeUrl(params)));
 
     request.setRawHeader("User-Agent", userAgent.toAscii());
-    request.setRawHeader("Content-Type","application/x-www-form-urlencoded");
-    request.setRawHeader("Accept","text/xml");
+    //request.setRawHeader("Content-Type","application/x-www-form-urlencoded");
+    //request.setRawHeader("Accept","text/xml");
 
-    QNetworkReply *reply = manager->post(request,encodeUrl(params));
+    //QNetworkReply *reply = manager->post(request,encodeUrl(params));
+    QNetworkReply *reply = manager->get(request);
     reply->ignoreSslErrors();
 
     //connect(reply, SIGNAL(readyRead()), this, SLOT(readyRead()));
-    connect(reply, SIGNAL(error(QNetworkReply::NetworkError)),
+   connect(reply, SIGNAL(error(QNetworkReply::NetworkError)),
             this, SLOT(networkError(QNetworkReply::NetworkError)));
     connect(reply, SIGNAL(sslErrors(QList<QSslError>)),
             this, SLOT(sslError(QList<QSslError>)));
 
 
-    //qDebug()<< url;
+
    // qDebug()<<encodeUrl(params);
 
    // manager->get(request);

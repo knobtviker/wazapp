@@ -40,6 +40,21 @@ Item {
 		}
 	}
 
+	Connections {
+		target: appWindow
+
+		onMessageSent: {
+			if (ujid==jid && msg_id==mid)
+				state_status = isGroup ? "delivered" : "pending"
+		}
+
+		onMessageDelivered: {
+			if (ujid==jid && msg_id==mid)
+				state_status = "delivered"
+		}
+
+	}
+
     function getBubble(){
 
 		if (from_me==20 || from_me==21 || from_me==22 || from_me==23) 
@@ -89,7 +104,8 @@ Item {
            onOptionsRequested: {
                delegateContainer.optionsRequested()
            }
-       }
+
+  		}
     }
 
     Component {
@@ -107,27 +123,59 @@ Item {
 			progress:delegateContainer.progress
 			name: delegateContainer.name
 			state_status:delegateContainer.state_status
-			media: delegateContainer.media //.preview?delegateContainer.media.preview:""
+			media: delegateContainer.media
+			localPath: delegateContainer.media.local_path
 			message: delegateContainer.message
 			bubbleColor:delegateContainer.bubbleColor;
+
+			Connections {
+				target: appWindow
+
+				onMediaTransferProgressUpdated: {
+					if (media.id == mid) {
+						//consoleDebug("MESSAGE PROGRESS BUBBLE " + media.id + " - " + mprogress)
+						progress = mprogress
+					}
+				}
+
+				onMediaTransferSuccess: {
+					if (media.id == mid) {
+						consoleDebug("MESSAGE SENT! BUBBLE " + media.id + " - " + filepath)
+						transferState = 2
+						localPath = filepath
+						transferState = "success"
+						progress = 0
+					}
+				}
+
+				onMediaTransferError: {
+					if (media.id == mid) {
+						consoleDebug("MESSAGE ERROR BUBBLE " + media.id)
+						media.transfer_status = 1
+						transferState = "failed"
+						progress = 0
+					}
+				}
+
+			}
 
 			onOptionsRequested: {
 		   		delegateContainer.optionsRequested()
 			}
 
 			onClicked: {
-		   		if(from_me==0 && delegateContainer.media.transfer_status != 2)
+		   		if(from_me==0 && transferState!="success")
 		   			return;
 
 		   		var prefix = "";
 
-	   			switch(delegateContainer.media.mediatype_id){
+	   			switch(delegateContainer.media.mediatype_id) {
 					case 5:prefix = "geo:"; break;
-					default: prefix = "file://";break;
+					default: prefix = "file://"; break;
 		   		}
 
-				consoleDebug("OPENING: " + prefix + decodeURIComponent(delegateContainer.media.local_path))
-				Qt.openUrlExternally( prefix + decodeURIComponent(delegateContainer.media.local_path) );
+				consoleDebug("OPENING: " + prefix + decodeURIComponent(localPath))
+				Qt.openUrlExternally( prefix + decodeURIComponent(localPath) );
 			}
 
 			onUploadClicked: {

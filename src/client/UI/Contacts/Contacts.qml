@@ -24,17 +24,18 @@ import com.nokia.meego 1.0
 
 import "js/contacts.js" as ContactsManager
 import "../common/js/Global.js" as Helpers
+import "../common/WAListView/Components"
 import "../common"
 import "../Menu"
 
 WAPage {
     id: contactsContainer
 
-	state:"no_data"
+	//state:"no_data"
 
 	property alias indicator_state:wa_notifier.state
 
-	states: [
+	/*states: [
 		State {
 			name: "no_data"
 			PropertyChanges {
@@ -42,11 +43,11 @@ WAPage {
 				visible:true
 			}
 		}
-	]
+	]*/
 
     onStatusChanged: {
         if(status == PageStatus.Activating){
-			list_view1.positionViewAtBeginning()
+			//list_view1.positionViewAtBeginning()
 		}
 	}
 
@@ -127,19 +128,23 @@ WAPage {
 
         Contact{
             property bool filtered: model.name.match(new RegExp(searchInput.text,"i")) != null
-            id:contactComp
-            height: filtered ? 80 : 0
+            id: contactComp
+            height: model.iscontact =="yes" && filtered ? 80 : 0
 			visible: height!=0
             Component.onCompleted: {
                 ContactsManager.contactsViews.push(contactComp)
             }
 
-            jid:model.jid
-            picture:model.picture
+            jid: model.jid
+            picture: model.picture
             contactName: model.name
 			contactShowedName: searchInput.text.length>0 ? replaceText(model.name, searchInput.text) : model.name
-            contactStatus:model.status;
-            contactNumber:model.number
+            contactStatus: model.status? model.status : ""
+            contactNumber: model.number
+			//isNew: model.newContact
+
+			//isVisible: ((y >= ListView.view.contentY+100 && y <= ListView.view.contentBottom-100) ||
+            //           (y+height >= ListView.view.contentY+100 && y+height <= ListView.view.contentBottom-100))
 
 			onOptionsRequested: {
 				profileUser = model.jid
@@ -156,11 +161,41 @@ WAPage {
 	WAHeader{
 		id: header
         title: qsTr("Contacts")
-		bubbleCount: contactsModel.count
         anchors.top:parent.top
         width:parent.width
 		height: 73
     }
+
+	Image {
+		id: refreshPics
+		anchors.right: header.right
+		anchors.rightMargin: 16
+		anchors.verticalCenter: header.verticalCenter 
+		source: "../common/images/refresh.png"
+		MouseArea {
+			anchors.fill: parent
+			onClicked: {
+				refreshPics.visible = false
+				getPictures()
+			}
+		}
+	}
+
+    BusyIndicator {
+		anchors.right: header.right
+		anchors.rightMargin: 16
+		anchors.verticalCenter: header.verticalCenter 
+        implicitWidth: 32
+        visible: !refreshPics.visible
+        running: visible
+    }
+
+	Connections {
+		target: appWindow
+		onGetPicturesFinished: {
+			refreshPics.visible = true
+		}	
+	}
 
     WANotify{
 		anchors.top: header.bottom
@@ -255,13 +290,13 @@ WAPage {
 
         Item{
         	anchors.fill: parent
-            visible: false
+            visible: list_view1.count==0
             id: no_data
 
             Label{
                 anchors.centerIn: parent;
                 text: qsTr("No contacts yet. Try to resync")
-                font.pointSize: 20
+                font.pointSize: 26
                 width:parent.width
                 horizontalAlignment: Text.AlignHCenter
 				color: "gray"
@@ -277,7 +312,7 @@ WAPage {
             spacing: 1
 			cacheBuffer: 30000 // contactsModel.count * 81 --> this should work too.
 			highlightFollowsCurrentItem: false
-            section.property: "alphabet"
+            section.property: "name"
             section.criteria: ViewSection.FirstCharacter
 
             section.delegate: GroupSeparator {
@@ -289,6 +324,8 @@ WAPage {
 			}
 
 			Component.onCompleted: fast.listViewChanged()
+
+			property real contentBottom: contentY + height
 
             onContentYChanged:  {
                 if ( list_view1.visibleArea.yPosition < 0)

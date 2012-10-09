@@ -25,14 +25,25 @@ import com.nokia.meego 1.0
 import "../Contacts/js/contacts.js" as ContactsManager
 import "../common/js/Global.js" as Helpers
 import "../common"
+import "../common/WAListView/Components"
 import "../Contacts"
 
 WAPage {
     id: contactsContainer
 
+	function contactRemoved() {
+		consoleDebug("CALLED CONTACT REMOVED FUNCTION")
+		for (var i=0; i<list_view1.count; ++i) {
+			list_view1.currentIndex = i
+			list_view1.currentItem.isSelected = selectedContacts.indexOf(list_view1.currentItem.myData.jid)>-1
+		}
+	}
+
     onStatusChanged: {
         if(status == PageStatus.Activating){
+			contactRemoved()
 			list_view1.positionViewAtBeginning()
+
 		}
 		if(status == PageStatus.Active){
 			searchbar.height = 0
@@ -98,7 +109,7 @@ WAPage {
 			property string defaultPicture:"../common/images/user.png"
 			property string contactPicture: !picture || picture=="none" ? defaultPicture : picture
 			property string contactName: searchInput.text.length>0 ? replaceText(model.name, searchInput.text) : model.name
-			property string contactStatus: model.status;
+			property string contactStatus: model.status? model.status : ""
 			property string contactNumber: model.number
 			property bool isSelected: selectedContacts.indexOf(model.jid)>-1
 
@@ -163,8 +174,14 @@ WAPage {
 				id:mouseArea
 				anchors.fill: parent
 				onClicked:{
-				    //console.log("CONTACT CLICKED: ");
-					isSelected = !isSelected
+				    if (isSelected) {
+						isSelected = false
+						selectedContacts.replace(model.jid,"");
+						selectedContacts.replace(",,",",");
+					} else {
+						isSelected = true
+						selectedContacts = selectedContacts + (selectedContacts!==""? ",":"") + model.jid;
+					}
 				}
 			}
 
@@ -331,56 +348,20 @@ WAPage {
 			width: 300
             text: qsTr("Done")
             onClicked: {
-				//participantsModel.clear()
-				
-				/*for (var i=0; i<contactsModel.count; ++i) {
-					var data = myList.getItem(i)
-					if (myList.isSelected(i)) {
-						if (selectedContacts.indexOf(contactsModel.get(i).jid)<0) {
-							selectedContacts = selectedContacts + (selectedContacts!==""? ",":"") + contactsModel.get(i).jid;
-							participantsModel.append({"contactPicture":contactsModel.get(i).picture,
-								"contactName":contactsModel.get(i).name,
-								"contactStatus":contactsModel.get(i).status,
-								"contactJid":contactsModel.get(i).jid})
-						}
-					} else {
-						for (var j=0; j<participantsModel.count; ++j) {
-							if (participantsModel.get(j).contactJid==contactsModel.get(i).jid)
-								participantsModel.remove(j)
-						}
-						var newSelectedContacts = selectedContacts
-						newSelectedContacts = newSelectedContacts.replace(contactsModel.get(i).jid,"")
-						newSelectedContacts = newSelectedContacts.replace(",,",",")
-						selectedContacts = newSelectedContacts
-
-					}
-				}*/
-
-
-				for (var i=0; i<list_view1.count; ++i) {
-					list_view1.currentIndex = i
-					if (list_view1.currentItem.isSelected) {
-						consoleDebug("ADDING CONTACT: "+list_view1.currentItem.jid)
-
-						if (selectedContacts.indexOf(contactsModel.get(i).jid)<0) {
-							selectedContacts = selectedContacts + (selectedContacts!==""? ",":"") + contactsModel.get(i).jid;
-							participantsModel.append({"contactPicture":contactsModel.get(i).picture,
-								"contactName":contactsModel.get(i).name,
-								"contactStatus":contactsModel.get(i).status,
-								"contactJid":contactsModel.get(i).jid})
-						}
-					} else {
-						for (var j=0; j<participantsModel.count; ++j) {
-							if (participantsModel.get(j).contactJid==contactsModel.get(i).jid)
-								participantsModel.remove(j)
-						}
-						var newSelectedContacts = selectedContacts
-						newSelectedContacts = newSelectedContacts.replace(contactsModel.get(i).jid,"")
-						newSelectedContacts = newSelectedContacts.replace(",,",",")
-						selectedContacts = newSelectedContacts
-
-					}
+				var myContacts = selectedContacts
+				selectedContacts = ""
+				participantsModel.clear()
+				for (var i=0; i<contactsModel.count; ++i) {
+					if (myContacts.indexOf(contactsModel.get(i).jid)>-1) {
+						consoleDebug("ADDING CONTACT: "+contactsModel.get(i).jid)
+						selectedContacts = selectedContacts + (selectedContacts!==""? ",":"") + contactsModel.get(i).jid;
+						participantsModel.append({"contactPicture":contactsModel.get(i).picture,
+							"contactName":contactsModel.get(i).name,
+							"contactStatus":contactsModel.get(i).status,
+							"contactJid":contactsModel.get(i).jid})
+					} 
 				}
+				consoleDebug("PARTICIPANTS RESULT: " + selectedContacts)
 				pageStack.pop()
 			}
         }

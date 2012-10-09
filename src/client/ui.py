@@ -23,7 +23,6 @@ from PySide.QtGui import *
 from PySide.QtDeclarative import QDeclarativeView,QDeclarativeProperty
 from QtMobility.Messaging import *
 from contacts import WAContacts
-from status import WAChangeStatus
 from waxmpp import WAXMPP
 from utilities import Utilities
 #from registration import Registration
@@ -33,23 +32,49 @@ from threading import Timer
 from waservice import WAService
 import dbus
 from wadebug import UIDebug
-import os, shutil
+import os, shutil, glob, time, hashlib
+from subprocess import call
+import Image
+from PIL.ExifTags import TAGS
+from constants import WAConstants
+import subprocess
 
 class WAUI(QDeclarativeView):
 	quit = QtCore.Signal()
+	splashOperationUpdated = QtCore.Signal(str)
+	initialized = QtCore.Signal()
+	phoneContactsReady = QtCore.Signal(list)
+
 	
 	def __init__(self):
 		
 		_d = UIDebug();
 		self._d = _d.d;
 	
+		self.initializationDone = False
+		bus = dbus.SessionBus()
+		mybus = bus.get_object('com.nokia.video.Thumbnailer1', '/com/nokia/video/Thumbnailer1')
+		self.iface = dbus.Interface(mybus, 'org.freedesktop.thumbnails.SpecializedThumbnailer1')
+		self.iface.connect_to_signal("Finished", self.thumbnailUpdated)
+
+		contactsbus = bus.get_object('com.nokia.maemo.meegotouch.Contacts', '/', follow_name_owner_changes=True, )
+		self.contactsbus = dbus.Interface(contactsbus, 'com.nokia.maemo.meegotouch.ContactsInterface')
+		self.contactsbus.connect_to_signal("contactsPicked", self.contactPicked)
+
+		camerabus = bus.get_object('com.nokia.maemo.CameraService', '/', follow_name_owner_changes=True, )
+		self.camera = dbus.Interface(camerabus, 'com.nokia.maemo.meegotouch.CameraInterface')
+		self.camera.connect_to_signal("captureCompleted", self.captureCompleted)
+		self.camera.connect_to_signal("cameraClosed", self.captureCanceled)
+		self.selectedJid = ""
 		
 		super(WAUI,self).__init__();
 		url = QUrl('/opt/waxmppplugin/bin/wazapp/UI/main.qml')
 
-
+		self.filelist = []
 		
+
 		self.rootContext().setContextProperty("waversion", Utilities.waversion);
+		self.rootContext().setContextProperty("WAConstants", WAConstants.getAllProperties());
 		self.setSource(url);
 		self.focus = False
 		self.whatsapp = None
@@ -58,9 +83,11 @@ class WAUI(QDeclarativeView):
 	
 	def preQuit(self):
 		self._d("pre quit")
-		del self.whatsapp
-		del self.c
 		self.quit.emit()
+		
+	def onProcessEventsRequested(self):
+		#self._d("Processing events")
+		QtCore.QCoreApplication.processEvents()
 		
 	def initConnections(self,store):
 		self.store = store;
@@ -69,6 +96,7 @@ class WAUI(QDeclarativeView):
 		self.c = WAContacts(self.store);
 		self.c.contactsRefreshed.connect(self.populateContacts);
 		self.c.contactsRefreshed.connect(self.rootObject().onRefreshSuccess);
+		#self.c.contactsRefreshed.connect(self.updateContactsData); NUEVO!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 		self.c.contactsRefreshFailed.connect(self.rootObject().onRefreshFail);
 		self.c.contactsSyncStatusChanged.connect(self.rootObject().onContactsSyncStatusChanged);
 		self.c.contactPictureUpdated.connect(self.rootObject().onContactPictureUpdated);
@@ -80,12 +108,28 @@ class WAUI(QDeclarativeView):
 		self.rootObject().sendVCard.connect(self.sendVCard)
 		self.rootObject().consoleDebug.connect(self.consoleDebug)
 		self.rootObject().setLanguage.connect(self.setLanguage)
-		
+		self.rootObject().removeFile.connect(self.removeFile)
+		self.rootObject().getRingtones.connect(self.getRingtones)
+		self.rootObject().startRecording.connect(self.startRecording)
+		self.rootObject().stopRecording.connect(self.stopRecording)
+		self.rootObject().playRecording.connect(self.playRecording)
+		self.rootObject().deleteRecording.connect(self.deleteRecording)
+		self.rootObject().breathe.connect(self.onProcessEventsRequested)
+
+
+		self.rootObject().openContactPicker.connect(self.openContactPicker)
+
+		#self.rootObject().vibrateNow.connect(self.vibrateNow)
 				
 		#Changed by Tarek: connected directly to QContactManager living inside contacts manager
 		#self.c.manager.manager.contactsChanged.connect(self.rootObject().onContactsChanged);
 		#self.c.manager.manager.contactsAdded.connect(self.rootObject().onContactsChanged);
 		#self.c.manager.manager.contactsRemoved.connect(self.rootObject().onContactsChanged);
+		
+		#self.contactsReady.connect(self.rootObject().pushContacts)
+		self.phoneContactsReady.connect(self.rootObject().pushPhoneContacts)
+		self.splashOperationUpdated.connect(self.rootObject().setSplashOperation)
+		self.initialized.connect(self.rootObject().onInitDone)
 
 
 		
@@ -101,10 +145,14 @@ class WAUI(QDeclarativeView):
 		self.rootObject().deleteMessage.connect(self.messageStore.deleteMessage)
 		self.rootObject().conversationOpened.connect(self.messageStore.onConversationOpened)
 		self.rootObject().removeSingleContact.connect(self.messageStore.removeSingleContact)
+		self.rootObject().exportConversation.connect(self.messageStore.exportConversation)
 		self.dbusService = WAService(self);
 		
 	
 	def focusChanged(self,old,new):
+		if not self.initializationDone:
+			return
+		
 		if new is None:
 			self.onUnfocus();
 		else:
@@ -127,6 +175,7 @@ class WAUI(QDeclarativeView):
 		
 		self.whatsapp.eventHandler.onFocus();
 		self.whatsapp.eventHandler.onAvailable();
+		self.whatsapp.eventHandler.notifier.stopSound();
 	
 	def closeEvent(self,e):
 		self._d("HIDING")
@@ -158,9 +207,9 @@ class WAUI(QDeclarativeView):
 		#reg.start();
 		
 	def setLanguage(self,lang):
-		if os.path.isfile("/home/user/.wazapp/language.qm"):
-			os.remove("/home/user/.wazapp/language.qm")
-		shutil.copyfile("/opt/waxmppplugin/bin/wazapp/i18n/" + lang + ".qm", "/home/user/.wazapp/language.qm")
+		if os.path.isfile(WAConstants.STORE_PATH + "/language.qm"):
+			os.remove(WAConstants.STORE_PATH + "/language.qm")
+		shutil.copyfile("/opt/waxmppplugin/bin/wazapp/i18n/" + lang + ".qm", WAConstants.STORE_PATH + "/language.qm")
 
 
 	def consoleDebug(self,text):
@@ -191,17 +240,37 @@ class WAUI(QDeclarativeView):
 	def sendVCard(self,jid,name):
 		self.c.exportContact(jid,name);
 	
+
+	def openContactPicker(self,multi,title):
+		call(["qdbus", "com.nokia.maemo.meegotouch.Contacts", "/", "com.nokia.maemo.meegotouch.ContactsInterface.openContactPicker", "0", title, multi, "", "1", "("," ",")"])
+
+
+	def contactPicked(self,contacts,val):
+		print "CONTACTS PICKED: " + str(contacts) + " - " + val
+
+
 		
 	def updateContact(self, jid):
 		self._d("POPULATE SINGLE");
 		self.c.updateContact(jid);
 	
 	def updatePushName(self, jid, push):
-		#self.c.updateContactPushName(jid,push);
 		self._d("UPDATING CONTACTS");
 		contacts = self.c.getContacts();
 		self.rootObject().updateContactsData(contacts);
-		self.rootObject().updatePushName.emit(jid,push);
+		self.rootObject().updateContactName.emit(jid,push);
+
+
+	def updateContactsData(self):
+		contacts = self.c.getContacts();
+		position = 0
+		for contact in contacts:
+			print "CONTACT DATA: " + str(contact)
+			if contact.iscontact=="no" and contact.pushname=="":
+				self.rootObject().insertNewContact(position,contact);
+			position = position +1
+
+
 		
 
 	def populateContacts(self, mode, status=""):
@@ -214,22 +283,32 @@ class WAUI(QDeclarativeView):
 			self.rootObject().updateContactStatus(status)
 
 		else:
-			self._d("POPULATE CONTACTS");
+			if not self.initializationDone:
+				self.splashOperationUpdated.emit("Loading Contacts")
+
 			contacts = self.c.getContacts();
-			self.rootObject().pushContacts(contacts);
+			self._d("POPULATE CONTACTS: " + str(len(contacts)));
+			self.rootObject().pushContacts(mode,contacts);
 
 		#if self.whatsapp is not None:
 		#	self.whatsapp.eventHandler.networkDisconnected()
 
 		
 	def populateConversations(self):
+		if not self.initializationDone:
+			self.splashOperationUpdated.emit("Loading Conversations")
 		self.messageStore.loadConversations()
 		
 
 	def populatePhoneContacts(self):
+		
+		if not self.initializationDone:
+			self.splashOperationUpdated.emit("Loading Phone Contacts")
+		
 		self._d("POPULATE PHONE CONTACTS");
 		contacts = self.c.getPhoneContacts();
 		self.rootObject().pushPhoneContacts(contacts);
+		#self.phoneContactsReady.emit(contacts)
 
 	
 	def login(self):
@@ -255,12 +334,216 @@ class WAUI(QDeclarativeView):
 		
 		return activeConvJId
 		
-	
+
+	def processFiles(self, folder, data): #, ignored):
+		#print "Processing " + folder
+		
+		if not os.path.exists(folder):
+			return
+		
+		currentDir = os.path.abspath(folder)
+		filesInCurDir = os.listdir(currentDir)
+
+		for file in filesInCurDir:
+			curFile = os.path.join(currentDir, file)
+
+			if os.path.isfile(curFile):
+				curFileExtention = curFile.split(".")[-1]
+				if curFileExtention in data and not curFile in self.filelist and not "No sound.wav" in curFile:
+					self.filelist.append(curFile)
+			elif not "." in curFile: #Don't process hidden folders
+				#if not curFile in ignored:
+				self.processFiles(curFile, data) #, ignored)
+
+
+	def getImageFiles(self):
+		print "GETTING IMAGE FILES..."
+		self.filelist = []
+		data = ["jpg","jpeg","png","gif","JPG","JPEG","PNG","GIF"]
+		'''ignored = ["/home/user/MyDocs/ANDROID","/home/user/MyDocs/openfeint"]
+		f = open("/home/user/.config/tracker/tracker-miner-fs.cfg", 'r')
+		for line in f:
+			if "IgnoredDirectories=" in line:
+				values = line.replace("IgnoredDirectories=","").split(';')
+				break
+		f.close()
+		for val in values:
+			ignored.append(val.replace("$HOME","/home/user"))'''
+
+		self.processFiles("/home/user/MyDocs/DCIM", data) #, ignored)
+		self.processFiles("/home/user/MyDocs/Pictures", data) #, ignored)
+		self.processFiles("/home/user/MyDocs/Wazapp", data) #, ignored) @@Remove since using STORE_PATH as well?
+		self.processFiles(WAConstants.STORE_PATH, data)
+
+
+		myfiles = []
+		for f in self.filelist:
+			stats = os.stat(f)
+			lastmod = time.localtime(stats[8])
+
+			m = hashlib.md5()
+			url = QtCore.QUrl("file://"+f).toEncoded()
+			m.update(url)
+			crypto = WAConstants.THUMBS_PATH + "/grid/" + m.hexdigest() + ".jpeg"
+			if not os.path.exists(crypto):
+				# Thumbnail does'n exist --> Generating...
+				if f.split(".")[-1] == "jpg" or f.split(".")[-1] == "JPG":
+					self.iface.Queue(str(url),"image/jpeg","grid", True)
+				elif f.split(".")[-1] == "png" or f.split(".")[-1] == "PNG":
+					self.iface.Queue(str(url),"image/png","grid", True)
+				elif f.split(".")[-1] == "gif" or f.split(".")[-1] == "GIF":
+					self.iface.Queue(str(url),"image/gif","grid", True)
+
+			myfiles.append({"fileName":f.split('/')[-1],"url":QtCore.QUrl("file://"+f).toEncoded(),"date":lastmod,"thumb":crypto}) 
+
+		self.rootObject().pushImageFiles( sorted(myfiles, key=lambda k: k['date'], reverse=True) );
+
+
+	def getVideoFiles(self):
+		print "GETTING VIDEO FILES..."
+		self.filelist = []
+		data = ["mov","3gp","mp4","MOV","3GP","MP4"]
+		'''ignored = ["/home/user/MyDocs/ANDROID","/home/user/MyDocs/openfeint"]
+		f = open("/home/user/.config/tracker/tracker-miner-fs.cfg", 'r')
+		for line in f:
+			if "IgnoredDirectories=" in line:
+				values = line.replace("IgnoredDirectories=","").split(';')
+				break
+		f.close()
+		for val in values:
+			ignored.append(val.replace("$HOME","/home/user"))'''
+
+		self.processFiles("/home/user/MyDocs/DCIM", data) #, ignored)
+		self.processFiles("/home/user/MyDocs/Movies", data) #, ignored)
+		self.processFiles("/home/user/MyDocs/Wazapp", data) #, ignored)
+		self.processFiles(WAConstants.STORE_PATH, data)
+
+		myfiles = []
+		for f in self.filelist:
+			stats = os.stat(f)
+			lastmod = time.localtime(stats[8])
+			
+			m = hashlib.md5()
+			url = QtCore.QUrl("file://"+f).toEncoded()
+			m.update(url)
+			crypto = WAConstants.THUMBS_PATH + "/grid/" + m.hexdigest() + ".jpeg"
+			if not os.path.exists(crypto):
+				# Thumbnail does'n exist --> Generating...
+				if f.split(".")[-1] == "mp4" or f.split(".")[-1] == "MP4":
+					self.iface.Queue(str(url),"video/mp4","grid", True)
+				elif f.split(".")[-1] == "3gp" or f.split(".")[-1] == "3GP":
+					self.iface.Queue(str(url),"video/3gpp4","grid", True)
+				elif f.split(".")[-1] == "mov" or f.split(".")[-1] == "MOV":
+					self.iface.Queue(str(url),"video/mpquicktime4","grid", True)
+
+			myfiles.append({"fileName":f.split('/')[-1],"url":QtCore.QUrl("file://"+f).toEncoded(),"date":lastmod,"thumb":crypto}) 
+
+		self.rootObject().pushVideoFiles( sorted(myfiles, key=lambda k: k['date'], reverse=True) );
+
+
+	def getRingtones(self):
+		print "GETTING RING TONES..."
+		self.filelist = []
+		data = ["mp3","MP3","wav","WAV"]
+		self.processFiles("/usr/share/sounds/ring-tones/", data) #, ignored)
+		self.processFiles("/home/user/MyDocs/Ringtones", data) #, ignored)
+
+		myfiles = []
+		for f in self.filelist:
+			myfiles.append({"name":f.split('/')[-1].split('.')[0].title(),"value":f}) 
+
+		self.rootObject().pushRingtones( sorted(myfiles, key=lambda k: k['name']) );
+
+
+
+	def thumbnailUpdated(self,result):
+		self.rootObject().onThumbnailUpdated()
+
+
+	def openCamera(self, jid, mode):
+		#self.camera.showCamera() #Only supports picture mode on start
+
+		self.selectedJid = jid;
+		call(["qdbus", "com.nokia.maemo.CameraService", "/", "com.nokia.maemo.meegotouch.CameraInterface.showCamera", "0", "", mode, "true"])
+
+		'''
+		# This shit doesn't work!!!
+		camera = QCamera;
+		viewFinder = QCameraViewfinder();
+		viewFinder.show();
+		camera.setViewfinder(viewFinder);
+		imageCapture = QCameraImageCapture(camera);
+		camera.setCaptureMode(QCamera.CaptureStillImage);
+		camera.start();'''
+
+
+
+	def captureCompleted(self,mode,filepath):
+		if self.selectedJid == "":
+			return;
+
+		print "CAPTURE COMPLETED! Mode: " + mode
+		rotation = 0
+		capturemode = "image"
+		if filepath.split(".")[-1] == "jpg":
+			crypto = ""
+			rotation = 0
+			im = Image.open(filepath)
+			try:
+				if ', 274: 6,' in str(im._getexif()):
+					rotation = 90
+			except:
+				rotation = 0
+		else:
+			capturemode = "video"
+			m = hashlib.md5()
+			url = QtCore.QUrl("file://"+filepath).toEncoded()
+			m.update(url)
+			crypto = WAConstants.THUMBS_PATH + "/screen/" + m.hexdigest() + ".jpeg"
+			self.iface.Queue(str(url),"video/mp4","screen", True)
+
+		print "CAPTURE COMPLETED! File: " + filepath
+		self.rootObject().capturedPreviewPicture(self.selectedJid, filepath, rotation, crypto, capturemode)
+		self.selectedJid = ""
+
+
+	def captureCanceled(self):
+		print "CAPTURE CLOSED!!!"
+		self.selectedJid = ""
+
+
+	def removeFile(self, filepath):
+		print "REMOVING FILE: " + filepath
+		filepath = filepath.replace("file://","")
+		os.remove(filepath)
+
+
+	def startRecording(self):
+		print 'Starting the record...'
+		self.pipe = subprocess.Popen(['/usr/bin/arecord','-r','16000','-t','wav',WAConstants.CACHE_PATH+'/temprecord.wav'])
+		print "The pid is: " + str(self.pipe.pid)
+
+
+	def stopRecording(self):
+		print 'Killing REC Process now!'
+		os.kill(self.pipe.pid, 9)
+		self.pipe.poll()
+
+
+	def playRecording(self):
+		self.whatsapp.eventHandler.notifier.playSound(WAConstants.CACHE_PATH+'/temprecord.wav')
+
+
+	def deleteRecording(self):
+		if os.path.exists(WAConstants.CACHE_PATH+'/temprecord.wav'):
+			os.remove(WAConstants.CACHE_PATH+'/temprecord.wav')
+
+
 	def initConnection(self):
 		
 		password = self.store.account.password;
 		usePushName = self.store.account.pushName
-		resource = "Symbian-2.8.4-31110";
+		resource = "iPhone-2.8.3";
 		chatUserID = self.store.account.username;
 		domain ='s.whatsapp.net'
 		
@@ -288,23 +571,26 @@ class WAUI(QDeclarativeView):
 		whatsapp.eventHandler.lastSeenUpdated.connect(self.rootObject().onLastSeenUpdated);
 		whatsapp.eventHandler.updateAvailable.connect(self.rootObject().onUpdateAvailable)
 		
-		whatsapp.eventHandler.groupInfoUpdated.connect(self.rootObject().onGroupInfoUpdated);
-		whatsapp.eventHandler.groupCreated.connect(self.rootObject().onGroupCreated);
-		whatsapp.eventHandler.addedParticipants.connect(self.rootObject().onAddedParticipants);
+		whatsapp.eventHandler.groupInfoUpdated.connect(self.rootObject().groupInfoUpdated);
+		whatsapp.eventHandler.groupCreated.connect(self.rootObject().groupCreated);
+		whatsapp.eventHandler.addedParticipants.connect(self.rootObject().addedParticipants);
 		whatsapp.eventHandler.removedParticipants.connect(self.rootObject().onRemovedParticipants);
 		whatsapp.eventHandler.groupParticipants.connect(self.rootObject().onGroupParticipants);
 		whatsapp.eventHandler.groupEnded.connect(self.rootObject().onGroupEnded);
 		whatsapp.eventHandler.groupSubjectChanged.connect(self.rootObject().onGroupSubjectChanged);
-
 		whatsapp.eventHandler.profilePictureUpdated.connect(self.updateContact);
 
 		whatsapp.eventHandler.setPushName.connect(self.updatePushName);
+		whatsapp.eventHandler.statusChanged.connect(self.rootObject().statusChanged);
 		#whatsapp.eventHandler.setPushName.connect(self.rootObject().updatePushName);
 		#whatsapp.eventHandler.profilePictureUpdated.connect(self.rootObject().onPictureUpdated);
 
-		whatsapp.eventHandler.mediaTransferSuccess.connect(self.rootObject().onMediaTransferSuccess);
-		whatsapp.eventHandler.mediaTransferError.connect(self.rootObject().onMediaTransferError);
-		whatsapp.eventHandler.mediaTransferProgressUpdated.connect(self.rootObject().onMediaTransferProgressUpdated)
+		whatsapp.eventHandler.imageRotated.connect(self.rootObject().imageRotated);
+		whatsapp.eventHandler.getPicturesFinished.connect(self.rootObject().getPicturesFinished);
+
+		whatsapp.eventHandler.mediaTransferSuccess.connect(self.rootObject().mediaTransferSuccess);
+		whatsapp.eventHandler.mediaTransferError.connect(self.rootObject().mediaTransferError);
+		whatsapp.eventHandler.mediaTransferProgressUpdated.connect(self.rootObject().mediaTransferProgressUpdated)
 		
 		whatsapp.eventHandler.doQuit.connect(self.preQuit);
 		
@@ -335,21 +621,32 @@ class WAUI(QDeclarativeView):
 		self.rootObject().sendMediaImageFile.connect(whatsapp.eventHandler.sendMediaImageFile)
 		self.rootObject().sendMediaVideoFile.connect(whatsapp.eventHandler.sendMediaVideoFile)
 		self.rootObject().sendMediaAudioFile.connect(whatsapp.eventHandler.sendMediaAudioFile)
+		self.rootObject().sendMediaRecordedFile.connect(whatsapp.eventHandler.sendMediaRecordedFile)
 		self.rootObject().sendMediaMessage.connect(whatsapp.eventHandler.sendMediaMessage)
 		self.rootObject().sendLocation.connect(whatsapp.eventHandler.sendLocation)
-		#self.rootObject().sendVCard.connect(whatsapp.eventHandler.sendVCard)
+		self.rootObject().rotateImage.connect(whatsapp.eventHandler.rotateImage)
+		self.rootObject().changeStatus.connect(whatsapp.eventHandler.changeStatus)
+
 		self.c.contactExported.connect(whatsapp.eventHandler.sendVCard)
 
 		self.rootObject().setBlockedContacts.connect(whatsapp.eventHandler.setBlockedContacts)
 		self.rootObject().setResizeImages.connect(whatsapp.eventHandler.setResizeImages)
+		self.rootObject().setPersonalRingtone.connect(whatsapp.eventHandler.setPersonalRingtone)
+		self.rootObject().setPersonalVibrate.connect(whatsapp.eventHandler.setPersonalVibrate)
+		self.rootObject().setGroupRingtone.connect(whatsapp.eventHandler.setGroupRingtone)
+		self.rootObject().setGroupVibrate.connect(whatsapp.eventHandler.setGroupVibrate)
+
+		self.rootObject().openCamera.connect(self.openCamera)
+
+		self.rootObject().getImageFiles.connect(self.getImageFiles)
+		self.rootObject().getVideoFiles.connect(self.getVideoFiles)
+		
+		self.rootObject().populatePhoneContacts.connect(self.populatePhoneContacts)
+
 
 		#self.reg = Registration();
 		self.whatsapp = whatsapp;
 		
-		#change whatsapp status
-		self.cs = WAChangeStatus(self.store);
-		self.rootObject().changeStatus.connect(self.cs.sync)
-
 		
 		#print "el acks:"
 		#print whatsapp.supports_receipt_acks

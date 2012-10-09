@@ -43,11 +43,11 @@ Menu {
 			}
         }
 
-		MenuItem {
+		/*MenuItem {
             text: qsTr("My profile");
 			//enabled: connectionStatus=="online"
             onClicked: pageStack.push (Qt.resolvedUrl("../Profile/Profile.qml"))
-        }
+        }*/
 
         MenuItem {
             id:sync_item
@@ -55,21 +55,23 @@ Menu {
 			enabled: connectionStatus=="online"
             //onClicked: { console.log("SYNC"); syncClicked(); }
 			onClicked: {
-				shareSyncContacts.mode = "sync"
-				pageStack.push(shareSyncContacts)
+				//shareSyncContacts.mode = "sync"
+				//pageStack.push(shareSyncContacts)
+				appWindow.onSyncClicked()
+				//openContactPicker("true", qsTr("Sync Contacts"))
 			}
         }
 
         MenuItem{
             text: qsTr("Settings")
-            onClicked:  pageStack.push( Qt.resolvedUrl("../Settings/Settings.qml") );
+            onClicked:  pageStack.push( Qt.resolvedUrl("../Settings/SettingsNew.qml") );
         }
 
 
-        MenuItem {
+        /*MenuItem {
            text: qsTr("About")
            onClicked: appWindow.aboutInit();
- 	   }
+		}*/
 
 
         MenuItem{

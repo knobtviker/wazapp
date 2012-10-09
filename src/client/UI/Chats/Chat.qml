@@ -41,7 +41,6 @@ Rectangle{
     property string picture;
     property int unreadCount;
 	property bool isOpenend:false
-	property string typing: "<i>" + qsTr("is writting a message...") + "</i>"
 
     signal clicked(string number);
     signal optionsRequested()
@@ -54,12 +53,20 @@ Rectangle{
 
 	Connections {
 		target: appWindow
+
+		onReorderConversation: {
+			if (jid==cjid)
+				waChats.moveToCorrectIndex(cjid);
+		}
+
 		onGroupInfoUpdated: {
-			var data = groupInfoData.split("<<->>")
-			if (jid==groupId) {
+			var data = gdata.split("<<->>")
+			if (jid==gjid) {
 				consoleDebug("CONVERSATION JID: " + jid)
+				var data = gdata.split("<<->>")
 				subject = data[2]
 				owner = data[1]
+				title = subject
 			}
 		}
 		onOnContactPictureUpdated: {
@@ -68,7 +75,7 @@ Rectangle{
 				chat_picture.imgsource = picture
 			}
 		}	
-		onUpdatePushName: {
+		onUpdateContactName: {
 			if (jid == ujid) {
 				if (title = jid.split('@')[0]) {
 					consoleDebug("Update push name in Chat")
@@ -78,20 +85,18 @@ Rectangle{
 		}
 
 		onOnTyping: {
-			if (jid == ujid) 
-				last_msg.text = typing
+			if (jid == ujid) {
+				last_msg.visible = false
+				isWriting.visible = true
+			}
 		}
 
 		onOnPaused: {
-			if (jid == ujid) 
-				last_msg.text = lastMessage? (lastMessage.type==0 || lastMessage.type==1 ? Helpers.emojify(lastMessage.content) : 
-			  	    (lastMessage.type==20 ? qsTr("%1 has join the group").arg(getAuthor(lastMessage.content)) : 
-				    (lastMessage.type==21 ? qsTr("%1 has left the group").arg(getAuthor(lastMessage.content)) :
-				    (lastMessage.type==22 ? qsTr("%1 has changed the subject to %2").arg(getAuthor(lastMessage.author.jid)).arg(Helpers.emojify(lastMessage.content)) :
-					qsTr("%1 has changed the group picture").arg(getAuthor(lastMessage.content)) )))) :
-					qsTr("(no messages)")
+			if (jid == ujid) {
+				last_msg.visible = true
+				isWriting.visible = false
+			}
 		}
-
 
 	}
 
@@ -130,8 +135,8 @@ Rectangle{
         lastMessage = c.lastMessage;
         unreadCount = c.unreadCount;
 		isOpenend = c.opened;
-		if(lastMessage)
-            waChats.moveToCorrectIndex(jid);
+		//if(lastMessage) 
+        //    waChats.moveToCorrectIndex(jid);
     }
 
     states: [
@@ -227,8 +232,9 @@ Rectangle{
 		    width:parent.width - 90
 			spacing: 0
 
-			Row{
-                spacing:5
+			Item{
+                //spacing:5
+				height: 30
                 width:parent.width -6
 
                 Label{
@@ -241,7 +247,7 @@ Rectangle{
                     verticalAlignment: Text.AlignVCenter
 					height: 30
                 }
-				Rectangle {
+				/*Rectangle {
 					color: "gray"
 					radius: 10
 					smooth: true
@@ -254,6 +260,11 @@ Rectangle{
 						anchors.centerIn: parent
                         text:unreadCount
 					}
+				}*/
+				CountBubble {
+					title: unreadCount? unreadCount : ""
+					anchors.right: parent.right
+					anchors.verticalCenter: parent.verticalCenter
 				}
             }
             Row{
@@ -263,26 +274,40 @@ Rectangle{
 
                 Image {
                     id: status
-                    height: lastMessage ? 16 : 0
+                    height: lastMessage ? (isWriting.visible ? 0 : 16) : 0
 					width: 16
 					smooth: true
                     y: 5
  				}
-                Label{
+                Label {
                     id:last_msg
                     text: lastMessage? (lastMessage.type==0 || lastMessage.type==1 ? Helpers.emojify(lastMessage.content) : 
-					  	  (lastMessage.type==20 ? qsTr("%1 has join the group").arg(getAuthor(lastMessage.content)) : 
-						  (lastMessage.type==21 ? qsTr("%1 has left the group").arg(getAuthor(lastMessage.content)) :
-						  (lastMessage.type==22 ? qsTr("%1 has changed the subject to %2").arg(getAuthor(lastMessage.author.jid)).arg(Helpers.emojify(lastMessage.content)) :
-						  qsTr("%1 has changed the group picture").arg(getAuthor(lastMessage.content)) )))) :
+                          (lastMessage.type==20 ? qsTr("%1 joined the group").arg(getAuthor(lastMessage.content)) :
+                          (lastMessage.type==21 ? qsTr("%1 left the group").arg(getAuthor(lastMessage.content)) :
+						  (lastMessage.type==22 ? (lastMessage.author.jid==myAccount ?
+                            qsTr("%1 changed the subject to %2").arg(getAuthor(lastMessage.author.jid)).arg(Helpers.emojify(lastMessage.content)) :
+                            qsTr("%1 changed the subject to %2").arg(getAuthor(lastMessage.author.jid)).arg(Helpers.emojify(lastMessage.content)) ):
+						  (lastMessage.author.jid==myAccount ? 
+                            qsTr("%1 changed the group picture").arg(getAuthor(lastMessage.content)) :
+                            qsTr("%1 changed the group picture").arg(getAuthor(lastMessage.content))) )))) :
 						  qsTr("(no messages)")
                    	width:parent.width -(status.visible?30:10)
                     elide: Text.ElideRight
                     font.pixelSize: 20
                     height: 28
-                    color: text==typing ? "gray" : (unreadCount!=0 ? "#27a01b" : chat_title.color)
+                    color: unreadCount!=0 ? "#27a01b" : chat_title.color
 					clip: true
                 }
+				Label {
+					id: isWriting
+					visible: false
+					text: "<i>" + qsTr("is writing a message...") + "</i>"
+                    elide: Text.ElideRight
+                    font.pixelSize: 20
+                    height: 28
+                    color: "gray"
+					clip: true
+				}
             }
 
             Label{
