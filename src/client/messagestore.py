@@ -32,7 +32,7 @@ class MessageStore(QObject):
 	messageStatusUpdated = QtCore.Signal(str,int,int);
 	messagesReady = QtCore.Signal(dict,bool);
 	conversationReady = QtCore.Signal(dict);
-	conversationExported = QtCore.Signal(str, str); #jid, exportePath
+	conversationMedia = QtCore.Signal(list); 
 	
 	currKeyId = 0
 
@@ -73,6 +73,36 @@ class MessageStore(QObject):
 		del self.conversations[jid]
 
 	
+	def getConversationMedia(self,jid):
+		tmp = []
+		#tmp["mediaData"] = []
+		media = []
+		gMedia = []
+
+		conversation = self.getOrCreateConversationByJid(jid)
+
+		messages = self.store.Message.findAll({"conversation_id":conversation.id,"NOT media_id":0})
+		for m in messages:
+			media.append(m.getMedia())
+
+		if media:
+			for ind in media:
+				if ind.transfer_status == 2:
+					#print ind.local_path
+					tmp.append(ind.getModelData());
+
+		gMessages = self.store.Groupmessage.findAll({"contact_id":conversation.contact_id,"NOT media_id":0})
+		for m in gMessages:
+			gMedia.append(m.getMedia())
+		
+		if gMedia:
+			for gind in gMedia:
+				if gind.transfer_status == 2:
+					#print gind.local_path
+					tmp.append(gind.getModelData());
+		print tmp
+		self.conversationMedia.emit(tmp)
+
 
 	def deleteMessage(self,jid,msgid):
 
