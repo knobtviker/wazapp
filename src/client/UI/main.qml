@@ -134,7 +134,8 @@ WAStackWindow {
 	signal stopRecording();
 	signal playRecording();
 	signal deleteRecording();
-    signal exportConversation(string jid);
+    	signal exportConversation(string jid);
+	signal getConversationMediaByJid(string jid)
 
     signal breathe()
 
@@ -306,6 +307,12 @@ WAStackWindow {
     function onConversationExported(jid, path){
         consoleDebug(jid+":::"+path)
     }
+
+	function onConversationMedia(media) {
+
+        	consoleDebug("MEDIA OBJECT",media[0].local_path)
+
+    	}
 
 	function onContactsChanged() {
 
