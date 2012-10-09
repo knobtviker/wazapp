@@ -140,7 +140,8 @@ class WAUI(QDeclarativeView):
 		self.messageStore.conversationReady.connect(self.rootObject().conversationReady)
 		self.rootObject().loadMessages.connect(self.messageStore.loadMessages);
 		
-		
+		self.messageStore.conversationMedia.connect(self.rootObject().onConversationMedia)
+		self.rootObject().getConversationMediaByJid.connect(self.messageStore.getConversationMedia)
 		self.rootObject().deleteConversation.connect(self.messageStore.deleteConversation)
 		self.rootObject().deleteMessage.connect(self.messageStore.deleteMessage)
 		self.rootObject().conversationOpened.connect(self.messageStore.onConversationOpened)
