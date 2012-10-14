@@ -320,7 +320,7 @@ WAPage {
         ListView {
             id: mediaList
             Component.onCompleted: {
-                getContactMediaByJid(profileUser)
+                getConversationMediaByJid(profileUser)
             }
             orientation: ListView.Horizontal
             width: parent.width -32
