@@ -29,9 +29,11 @@ import "../EmojiDialog"
 Item {
 
 	id: content
+	height: column1.height
 
 	property alias text: status_text.text
 	property string tempStatus: ""
+    property bool requested:false
 	
 	signal emojiSelected(string emojiCode);
 
@@ -51,8 +53,9 @@ Item {
         }
 
     }
+
 	PresetsDialog {
-		id: presetsDialog
+        	id: presetsDialog
 	}
 
 	Connections {
@@ -84,103 +87,106 @@ Item {
 	Connections {
 		target: appWindow
 
-		onStatusChanged: {
-			MySettings.setSetting("Status", tempStatus)
-			myStatus.text = Helpers.emojify(tempStatus)
-			send_button.enabled = true
-			status_text.enabled = true
-			emoji_button.enabled = true
-			presetsButton.enabled = true
-		}
+        onProfileStatusChanged: {
+
+            if(requested) {
+                MySettings.setSetting("Status", tempStatus)
+                myStatus.text = Helpers.emojify(tempStatus)
+                send_button.text=qsTr("Done")
+                send_button.enabled = true
+                status_text.enabled = true
+                emoji_button.enabled = true
+		presetsButton.enabled = true
+
+                showNotification(qsTr("Status updated"))
+
+                requested = false
+
+            }
+        }
 	}
 	
-    Item {
-        //anchors.top: parent.top
-		//anchors.topMargin: 90
-		width: parent.width
-		height: parent.height
-        //color: "transparent"
+    Column {
+		id: column1
+        spacing: 16
+        anchors { top: parent.top; left: parent.left; right: parent.right; }
+        //anchors.leftMargin: 16
+        //anchors.rightMargin: 16
 
-        Column {
-            spacing: 16
-            anchors { top: parent.top; left: parent.left; right: parent.right; }
-            //anchors.leftMargin: 16
-            //anchors.rightMargin: 16
-
-            WATextArea {
-			    id: status_text
-			    width:parent.width
-				wrapMode: TextEdit.Wrap
-				textFormat: Text.RichText
-				textColor: "black"
-				onActiveFocusChanged: { 
-					lastPosition = status_text.cursorPosition 
-					consoleDebug("LAST POSITION: " + lastPosition)
-				}
+        WATextArea {
+		    id: status_text
+		    width:parent.width
+			wrapMode: TextEdit.Wrap
+			textFormat: Text.RichText
+			textColor: "black"
+			onActiveFocusChanged: { 
+				lastPosition = status_text.cursorPosition 
+				consoleDebug("LAST POSITION: " + lastPosition)
 			}
+		}
 
-			Item {
-				id: input_button_holder
+		Rectangle {
+			id: input_button_holder
+			anchors.left: parent.left
+			width: parent.width
+			height: 50
+			color: "transparent"
+			clip: true
+							
+			Button
+			{
+				id:emoji_button
+				//platformStyle: ButtonStyle { inverted: true }
+				width:50
+				height:50
+                iconSource: "../common/images/emoji/32/emoji-E415.png"
 				anchors.left: parent.left
-				width: parent.width
-				height: 50
-				//color: "transparent"
-				clip: true
-								
-				Button
-				{
-					id:emoji_button
-					//platformStyle: ButtonStyle { inverted: true }
-					width:50
-					height:50
-                    iconSource: "../common/images/emoji/32/emoji-E415.png"
-					anchors.left: parent.left
-					anchors.leftMargin: 0
-					anchors.verticalCenter: send_button.verticalCenter
-					onClicked: emojiDialog.openDialog()
-				}
-
-				Button {
-					id:presetsButton
-					//platformStyle: ButtonStyle { inverted: true }
-					width:160
-					height:50
-					text: qsTr("Presets")
-					anchors.right: send_button.left
-					anchors.rightMargin: 32
-					onClicked: {
-						presetsDialog.open()
-					}
-				}
-			
-				Button
-				{
-					id:send_button
-					platformStyle: ButtonStyle { inverted: true }
-					width:160
-					height:50
-					text: qsTr("Done")
-					anchors.right: parent.right
-					anchors.rightMargin: 0
-					//enabled: cleanText(status_text.text).trim() !=""
-					y: 0
-					onClicked:{
-						var toSend = cleanText(status_text.text);
-						toSend = toSend.trim();
-						if ( toSend != "")
-						{
-							tempStatus = toSend;
-							changeStatus(toSend);
-							send_button.enabled = false
-							status_text.enabled = false
-							emoji_button.enabled = false
-							presetsButton.enabled = false
-						}
+				anchors.leftMargin: 0
+				anchors.verticalCenter: send_button.verticalCenter
+				onClicked: emojiDialog.openDialog()
+			}
+			Button {
+			        id:presetsButton
+         			//platformStyle: ButtonStyle { inverted: true }
+         			width:160
+         			height:50
+         			text: qsTr("Presets")
+         			anchors.right: send_button.left
+         			anchors.rightMargin: 32
+         			onClicked: {
+                 			presetsDialog.open()
+         			}
+ 			}
+			Button
+			{
+				id:send_button
+				platformStyle: ButtonStyle { inverted: true }
+				width:160
+				height:50
+				text: qsTr("Done")
+				anchors.right: parent.right
+                anchors.rightMargin: 0
+				//enabled: cleanText(status_text.text).trim() !=""
+				y: 0
+				onClicked:{
+					var toSend = cleanText(status_text.text);
+					toSend = toSend.trim();
+					if ( toSend != "")
+                    {
+                        requested = true;
+						tempStatus = toSend;
+                        changeStatus(toSend);
+                        send_button.text = qsTr("Updating") + "..."
+                        send_button.enabled = false
+                        status_text.enabled = false
+                        emoji_button.enabled = false
+			presetsButton.enabled = false
 					}
 				}
 			}
-        }
-
+		}
     }
+
     
 }
+

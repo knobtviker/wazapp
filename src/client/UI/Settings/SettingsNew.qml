@@ -291,12 +291,15 @@ WAPage {
 						verticalAlignment: Text.AlignBottom
 						text: qsTr("Opacity:")
 						y: 24
-						height: 50
+						height: visible?50:0
+						visible: themeslider.visible
 					}
 		            Slider {
 		                //visible:settingsPage.status!=PageStatus.Inactive
 		                id: themeslider
-						x: 20; width: parent.width -40
+				x: 20 
+				width: parent.width -40
+				visible: backgroundSelector.subtitle == qsTr("(no background)") ? false : true
 		                maximumValue: 10
 		                minimumValue: 0
 		                stepSize: 1
